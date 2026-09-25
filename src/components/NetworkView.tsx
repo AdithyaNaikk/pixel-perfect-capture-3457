@@ -11,6 +11,7 @@ import {
   outputPositions,
 } from "@/lib/layout";
 import type { Weights } from "@/lib/weights";
+import { useAppStore } from "@/lib/store";
 
 export type NetworkSide = "ai" | "brain";
 
@@ -70,6 +71,26 @@ export function NetworkView({
   useInstanced(inputPos, color, inputRef);
   useInstanced(hiddenPos, color, hiddenRef);
   useInstanced(outputPos, color, outputRef);
+
+  // Input cube brightness follows the preprocessed image (no React re-render).
+  useEffect(() => {
+    const full = new THREE.Color(color);
+    const base = full.clone().multiplyScalar(DIM);
+    const tmp = new THREE.Color();
+    const apply = (img: Float32Array | null) => {
+      const mesh = inputRef.current;
+      if (!mesh) return;
+      for (let i = 0; i < inputPos.length; i++) {
+        tmp.copy(base).lerp(full, img?.[i] ?? 0);
+        mesh.setColorAt(i, tmp);
+      }
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    };
+    apply(useAppStore.getState().inputImage);
+    return useAppStore.subscribe((s, prev) => {
+      if (s.inputImage !== prev.inputImage) apply(s.inputImage);
+    });
+  }, [color, inputPos]);
 
   // One LineSegments geometry for the whole network.
   const lineGeometry = useMemo(() => {

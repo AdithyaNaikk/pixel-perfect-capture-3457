@@ -5,6 +5,7 @@ import { XR, createXRStore } from "@react-three/xr";
 import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
+import { DrawingPanel } from "./DrawingPanel";
 import { loadWeights, type Weights } from "@/lib/weights";
 
 /** Half-width of the whole scene (input grid edge at x = 2.4 + margin). */
@@ -90,6 +91,7 @@ export function XRApp() {
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
       </div>
+      <DrawingPanel />
     </div>
   );
 }
