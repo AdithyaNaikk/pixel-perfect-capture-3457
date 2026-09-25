@@ -1,4 +1,6 @@
-import { Grid } from "@react-three/drei";
+import { Grid, Text } from "@react-three/drei";
+
+import { OUTPUT_COUNT, OUTPUT_SPACING } from "@/lib/layout";
 
 import { NetworkView } from "./NetworkView";
 import type { Weights } from "@/lib/weights";
@@ -7,13 +9,9 @@ export const AI_COLOR = "#4fd1ff";
 export const BRAIN_COLOR = "#ff7a45";
 
 /** Midpoint between the two networks — used as the orbit target. */
-export const FOCUS: [number, number, number] = [0, 1.5, -1.5];
+export const FOCUS: [number, number, number] = [0, 1.5, -2.5];
 
-const SEPARATION = 1.6;
-// Rotate each network 90° about Y so layers run left-right:
-// input layer on the outer side, output layer facing the centre.
-const AI_ROT: [number, number, number] = [0, -Math.PI / 2, 0];
-const BRAIN_ROT: [number, number, number] = [0, Math.PI / 2, 0];
+const NET_POS: [number, number, number] = [0, 1.5, -2.5];
 
 export function Scene({ weights }: { weights: Weights }) {
   return (
@@ -25,19 +23,32 @@ export function Scene({ weights }: { weights: Weights }) {
       <NetworkView
         side="ai"
         label="AI"
-        position={[-SEPARATION / 2, 1.5, -1.5]}
-        rotation={AI_ROT}
+        position={NET_POS}
+        layerX={[-2.4, -1.5, -0.6]}
         weights={weights}
         color={AI_COLOR}
       />
       <NetworkView
         side="brain"
         label="BRAIN"
-        position={[SEPARATION / 2, 1.5, -1.5]}
-        rotation={BRAIN_ROT}
+        position={NET_POS}
+        layerX={[2.4, 1.5, 0.6]}
         weights={weights}
         color={BRAIN_COLOR}
       />
+
+      {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
+        <Text
+          key={i}
+          position={[0, 1.5 + ((OUTPUT_COUNT - 1) / 2 - i) * OUTPUT_SPACING, -2.5]}
+          fontSize={0.055}
+          color="#e6ecf5"
+          anchorX="center"
+          anchorY="middle"
+        >
+          {String(i)}
+        </Text>
+      ))}
 
       <Grid
         position={[0, 0, -2]}

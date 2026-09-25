@@ -13,16 +13,13 @@ export const OUTPUT_COUNT = 10;
 export const OUTPUT_RADIUS = 0.035;
 export const OUTPUT_SPACING = 0.085;
 
-/** Layers are spaced along the network's local +Z (front to back). */
+/** Layers are flat XY planes facing +Z, placed at different X positions. */
 export const LAYER_GAP = 0.9;
-export const INPUT_Z = LAYER_GAP;
-export const HIDDEN_Z = 0;
-export const OUTPUT_Z = -LAYER_GAP;
 
 function gridPositions(
   count: number,
   spacing: number,
-  z: number,
+  x: number,
 ): THREE.Vector3[] {
   const out: THREE.Vector3[] = [];
   const half = (count - 1) / 2;
@@ -30,9 +27,9 @@ function gridPositions(
     for (let col = 0; col < count; col++) {
       out.push(
         new THREE.Vector3(
-          (col - half) * spacing,
+          x + (col - half) * spacing,
           (half - row) * spacing,
-          z,
+          0,
         ),
       );
     }
@@ -41,20 +38,20 @@ function gridPositions(
 }
 
 /** 784 positions, row-major (matches MNIST flattening). */
-export function inputPositions(): THREE.Vector3[] {
-  return gridPositions(INPUT_GRID, INPUT_SPACING, INPUT_Z);
+export function inputPositions(x: number): THREE.Vector3[] {
+  return gridPositions(INPUT_GRID, INPUT_SPACING, x);
 }
 
 /** 64 positions in an 8x8 grid. */
-export function hiddenPositions(): THREE.Vector3[] {
-  return gridPositions(HIDDEN_GRID, HIDDEN_SPACING, HIDDEN_Z);
+export function hiddenPositions(x: number): THREE.Vector3[] {
+  return gridPositions(HIDDEN_GRID, HIDDEN_SPACING, x);
 }
 
 /** 10 positions in a vertical column. */
-export function outputPositions(): THREE.Vector3[] {
+export function outputPositions(x: number): THREE.Vector3[] {
   const half = (OUTPUT_COUNT - 1) / 2;
   return Array.from(
     { length: OUTPUT_COUNT },
-    (_, i) => new THREE.Vector3(0, (half - i) * OUTPUT_SPACING, OUTPUT_Z),
+    (_, i) => new THREE.Vector3(x, (half - i) * OUTPUT_SPACING, 0),
   );
 }
