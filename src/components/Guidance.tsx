@@ -49,55 +49,36 @@ export function Guidance3D() {
 }
 
 function Guidance3DInner() {
-  const text = useGuidanceText();
   const lesion = useLesionLine();
+  if (!lesion) return null;
   return (
     <group position={[0, 2.6, -1]}>
       <mesh position={[0, 0, -0.02]} renderOrder={1}>
-        <planeGeometry args={[3.4, 0.6]} />
+        <planeGeometry args={[3.4, 0.3]} />
         <meshBasicMaterial color="#05060a" transparent opacity={0.6} depthWrite={false} />
       </mesh>
       <Text
-        position={[0, 0.06, 0]}
-        fontSize={0.062}
-        maxWidth={3.2}
-        lineHeight={1.25}
-        color="#e6ecf5"
-        anchorX="center"
-        anchorY="middle"
-        textAlign="center"
-        renderOrder={2}
-      >
-        {text}
-      </Text>
-      <Text
-        position={[0, -0.14, 0]}
-        fontSize={0.04}
-        color="#8fa3b8"
+        position={[0, 0, 0]}
+        fontSize={0.045}
+        color="#ff5566"
         anchorX="center"
         anchorY="middle"
         renderOrder={2}
       >
-        {`${HINT_VR}  ·  ${HINT_DESKTOP}`}
+        {lesion}
       </Text>
-      {lesion && (
-        <Text position={[0, -0.21, 0]} fontSize={0.045} color="#ff5566" anchorX="center" anchorY="middle" renderOrder={2}>
-          {lesion}
-        </Text>
-      )}
     </group>
   );
 }
 
 /** Small HTML mirror of the guidance text for the desktop view. */
 export function GuidanceLine() {
-  const text = useGuidanceText();
   const lesion = useLesionLine();
+  if (!lesion) return null;
   return (
     <div className="pointer-events-none flex justify-center">
-      <p className="max-w-[700px] text-center font-mono text-xs leading-relaxed text-slate-300/90">
-        {text}
-        {lesion && <span className="block text-red-400">{lesion}</span>}
+      <p className="max-w-[700px] text-center font-mono text-xs leading-relaxed text-red-400">
+        {lesion}
       </p>
     </div>
   );
