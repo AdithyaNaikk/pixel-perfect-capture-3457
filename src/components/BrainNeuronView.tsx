@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
+import { NeuronAudio, neuronSound } from "./NeuronAudio";
 import { Boundary, NEURON_URL, NeuronPlaceholder, useExists } from "./Models";
 import { AXON_GUIDE, DENDRITE_GUIDES, HILLOCK_POINT, NEURON_SCALE, NEURON_SIZE, SOMA_POINT, axonCurve, dendriteCurves } from "@/lib/brainGuides";
 import { MAX_PULSES, SOMA_PATH, buildPulseNeuron, createPulseUniforms, type PulseUniforms } from "@/lib/neuronShader";
@@ -62,6 +63,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const [status, setStatus] = useState<{ step: number; done: boolean } | null>(null);
   const clock = useRef<number | null>(null);
   const lastStep = useRef(-1);
+  const lastSpikeStep = useRef(-1);
   const uniforms = useMemo(() => createPulseUniforms(), []);
   const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const ipsMat = useMemo(
@@ -88,6 +90,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     if (!runs) return;
     clock.current = 0;
     lastStep.current = -1;
+    lastSpikeStep.current = -1;
     setStatus({ step: 0, done: false });
   }, [runs, replayId]);
 
@@ -182,6 +185,12 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     // Animated "..." while thinking.
     if (dotsRef.current) dotsRef.current.visible = !done;
 
+    neuronSound.potential = refr > 0 ? 0 : v;
+    if (spikeAge < 0.05 && lastSpikeStep.current !== Math.round(p - spikeAge)) {
+      lastSpikeStep.current = Math.round(p - spikeAge);
+      neuronSound.spikes++;
+    }
+
     if (cur !== lastStep.current || (done && !status?.done)) {
       lastStep.current = cur;
       setStatus({ step: cur + 1, done });
@@ -202,15 +211,17 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const damagedSpikes = runs ? (runs.damaged.outputCounts[runs.shown] ?? 0) : 0;
 
   const NEURON_POS: [number, number, number] = [centerX, 1.62, -2.2];
-  // Neuron is turned 90° about Y: dendrites toward +Z (AI input side), axon toward -Z (output side).
-  const HEAD_POS: [number, number, number] = [centerX, 0.9, -3.6];
+  const HEAD_POS: [number, number, number] = [centerX + 1.05, 0.95, -2.2];
   // Face the user's start position (0, 1.6, 3).
   const headYaw = Math.atan2(0 - HEAD_POS[0], 3 - HEAD_POS[2]);
 
   return (
     <group name="brain-single-neuron">
-      <group position={NEURON_POS} rotation={[0, Math.PI / 2, 0]}>
+      <group position={NEURON_POS}>
         <PulseNeuronModel uniforms={uniforms} />
+        <group scale={NEURON_SCALE}>
+          <NeuronAudio position={SOMA_POINT} />
+        </group>
         {debug && (
           <group scale={NEURON_SCALE}>
             <Guides />
@@ -234,18 +245,18 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
 
       <group position={HEAD_POS} rotation={[0, headYaw, 0]}>
         <SimpleHead />
-        <group position={[0.25, 0.2, 0]}>
+        <group position={[0.4, 0.24, 0]} rotation={[0.55, 2.4, 0]}>
           <SimpleBrain ipsMat={ipsMat} />
-          <group ref={ipsLabel} visible={false} position={[0, 0.1, 0]}>
+          <group ref={ipsLabel} visible={false} position={[0, 0.2, 0]}>
             <Billboard>
-              <Text fontSize={0.018} color="#ffe066" anchorX="center" anchorY="middle" outlineWidth={0.002} outlineColor="#05060a">
+              <Text fontSize={0.036} color="#ffe066" anchorX="center" anchorY="middle" outlineWidth={0.004} outlineColor="#05060a">
                 Intraparietal sulcus: number meaning
               </Text>
             </Billboard>
           </group>
         </group>
       </group>
-      <ThoughtBubble position={[HEAD_POS[0], HEAD_POS[1] + 0.42, HEAD_POS[2]]} answer={answer} dotsRef={dotsRef} />
+      <ThoughtBubble position={[HEAD_POS[0], HEAD_POS[1] + 0.34, HEAD_POS[2]]} answer={answer} dotsRef={dotsRef} />
 
       <Text position={[centerX, 3.35, -2.2]} fontSize={0.22} color="#ff5fc8" anchorX="center" anchorY="middle">Brain network</Text>
       {res && status && (
@@ -312,7 +323,7 @@ function Guides() {
 function SimpleHead() {
   const { skin, eye } = useMemo(
     () => ({
-      skin: new THREE.MeshLambertMaterial({ color: "#c8c8cc", emissive: "#6a6a70", fog: false }),
+      skin: glassMaterial(),
       eye: new THREE.MeshBasicMaterial({ color: "#15151a", fog: false }),
     }),
     [],
@@ -354,7 +365,7 @@ function SimpleHead() {
 
 /** Two bumpy hemispheres (~18 cm long) with a gap, pinkish-grey at 80% opacity; IPS lines on the upper back. */
 function SimpleBrain({ ipsMat }: { ipsMat: THREE.Material }) {
-  const RX = 0.04, RY = 0.052, RZ = 0.09, OFF = 0.046;
+  const RX = 0.08, RY = 0.104, RZ = 0.18, OFF = 0.092;
   const { geo, mat, ips } = useMemo(() => {
     const g = new THREE.SphereGeometry(1, 48, 32);
     const pos = g.getAttribute("position");
@@ -375,7 +386,7 @@ function SimpleBrain({ ipsMat }: { ipsMat: THREE.Material }) {
         const t = THREE.MathUtils.lerp(0.15, 1.25, i / 14); // top toward the upper back (-Z)
         pts.push(new THREE.Vector3(side * xn * RX, Math.cos(t) * r * RY, -Math.sin(t) * r * RZ));
       }
-      return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.0025, 6, false);
+      return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.0075, 6, false);
     });
     return { geo: g, mat: m, ips: tubes };
   }, []);
@@ -440,4 +451,20 @@ function ThinkingDots() {
       ))}
     </>
   );
+}
+
+/** Hollow glass look: ~10% fill with a light-blue fresnel rim that is brightest at the silhouette. */
+function glassMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    toneMapped: false,
+    uniforms: { uColor: { value: new THREE.Color("#8fd8ff") } },
+    vertexShader: `varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `uniform vec3 uColor; varying vec3 vN; varying vec3 vV;
+      void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5);
+        gl_FragColor = vec4(uColor * (0.6 + 1.6 * f), 0.1 + 0.85 * f); }`,
+  });
 }

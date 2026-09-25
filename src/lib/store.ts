@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { resumeAudio } from "./neuronAudio";
+
 export type PlaybackSpeed = 0 | 0.25 | 1;
 
 export interface SpikingStatus {
@@ -42,6 +44,8 @@ interface AppState {
   /** Final output spike counts of the last brain run (the brain's vote). */
   brainCounts: number[] | null;
   setBrainCounts: (c: number[] | null) => void;
+  soundOn: boolean;
+  toggleSound: () => void;
 }
 
 const HIDDEN_COUNT = 64;
@@ -60,14 +64,16 @@ export const useAppStore = create<AppState>((set, get) => {
   speed: 1,
   aiAnswer: null,
   spiking: null,
-  run: (img) =>
+  run: (img) => {
+    resumeAudio();
     set((s) => ({
       inputImage: img,
       runId: s.runId + 1,
       aiAnswer: null,
       spiking: null,
       lesionRerun: false,
-    })),
+    }));
+  },
   replay: () => set((s) => ({ replayId: s.replayId + 1 })),
   setSpeed: (speed) => set({ speed }),
   setAiAnswer: (answer) => set({ aiAnswer: answer }),
@@ -104,6 +110,8 @@ export const useAppStore = create<AppState>((set, get) => {
   setBrainSelfTest: (brainSelfTest) => set({ brainSelfTest }),
   brainCounts: null,
   setBrainCounts: (brainCounts) => set({ brainCounts }),
+  soundOn: true,
+  toggleSound: () => { resumeAudio(); set((s) => ({ soundOn: !s.soundOn })); },
   healAll: () => {
     if (get().lesioned.size > 0) applyLesions(new Set<number>());
   },

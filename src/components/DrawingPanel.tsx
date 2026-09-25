@@ -151,10 +151,20 @@ export function DrawingPanel({ expanded, onExpandedChange, top }: DrawingPanelPr
               >
                 Run
               </Button>
+              <SoundButton />
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SoundButton() {
+  const on = useAppStore((s) => s.soundOn);
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={() => useAppStore.getState().toggleSound()} className="h-8 border-slate-600 bg-transparent font-mono text-slate-200 hover:bg-slate-800 hover:text-slate-100">
+      {on ? "Sound on" : "Sound off"}
+    </Button>
   );
 }
