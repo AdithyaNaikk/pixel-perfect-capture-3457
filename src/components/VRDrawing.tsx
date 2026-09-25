@@ -116,12 +116,12 @@ function VRDrawingInner() {
       const stroke = current.current;
       const last = stroke[stroke.length - 1];
       if (last && segCount.current < MAX_SEGMENTS) {
-        const arr = geometry.attributes.position!.array as Float32Array;
+        const arr = geometry.attributes["position"]!.array as Float32Array;
         const o = segCount.current * 6;
         arr[o] = last.x; arr[o + 1] = last.y; arr[o + 2] = last.z;
         arr[o + 3] = pos.x; arr[o + 4] = pos.y; arr[o + 5] = pos.z;
         segCount.current++;
-        geometry.attributes.position!.needsUpdate = true;
+        geometry.attributes["position"]!.needsUpdate = true;
         geometry.setDrawRange(0, segCount.current * 2);
       }
       stroke.push(pos);
