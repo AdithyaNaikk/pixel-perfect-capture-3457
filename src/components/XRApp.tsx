@@ -1,7 +1,6 @@
 import { OrbitControls } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
-import * as THREE from "three";
-import { XR, createXRStore } from "@react-three/xr";
+import { Canvas } from "@react-three/fiber";
+import { XR, XROrigin, createXRStore } from "@react-three/xr";
 import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
@@ -11,36 +10,6 @@ import { VRDrawing } from "./VRDrawing";
 import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
-
-/** Half-width of the whole scene (input grid edge at x = 2.4 + margin). */
-const SCENE_HALF_W = 2.85;
-const SCENE_HALF_H = 1.45; // includes titles and answers above the networks
-const MIN_DIST = 4.7; // camera z = 2.2 when the scene fits
-
-/** Pulls the desktop camera back until both input grids fit the viewport. */
-function CameraFit({ panelExpanded }: { panelExpanded: boolean }) {
-  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
-  const width = useThree((s) => s.size.width);
-  const height = useThree((s) => s.size.height);
-  useEffect(() => {
-    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const reservedHeight = panelExpanded ? Math.min(296, height * 0.5) : 0;
-    const availableHeight = Math.max(height - reservedHeight, 1);
-    const viewportAspect = width / Math.max(height, 1);
-    const verticalFit = (SCENE_HALF_H / tanV) * (height / availableHeight);
-    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * viewportAspect), verticalFit);
-    camera.position.set(FOCUS[0], FOCUS[1], FOCUS[2] + dist);
-    camera.lookAt(...FOCUS);
-    if (panelExpanded) {
-      camera.setViewOffset(width, height, 0, reservedHeight / 2, width, height);
-    } else {
-      camera.clearViewOffset();
-    }
-    camera.updateProjectionMatrix();
-    return () => camera.clearViewOffset();
-  }, [camera, width, height, panelExpanded]);
-  return null;
-}
 
 export function XRApp() {
   const store = useMemo(() => createXRStore(), []);
@@ -72,18 +41,18 @@ export function XRApp() {
   return (
     <div
       className="fixed inset-0 h-screen w-screen overflow-hidden"
-      style={{ backgroundColor: "#05060a" }}
+      style={{ backgroundColor: "#0a0c16" }}
     >
       <Canvas
         style={{ width: "100%", height: "100%", display: "block" }}
         dpr={[1, 1.5]}
         shadows={false}
-        camera={{ position: [0, 1.5, 2.2], fov: 65, near: 0.05, far: 100 }}
+        camera={{ position: [0, 2.2, 5], fov: 60, near: 0.05, far: 100 }}
       >
         <XR store={store}>
-          <color attach="background" args={["#05060a"]} />
-          <fog attach="fog" args={["#05060a", 3, 14]} />
-          <CameraFit panelExpanded={drawingExpanded} />
+          <color attach="background" args={["#0a0c16"]} />
+          <fog attach="fog" args={["#0a0c16", 9, 20]} />
+          <XROrigin position={[0, 0, 3]} />
           {weights && <Scene weights={weights} />}
           <VRDrawing />
           <ControllerPen />

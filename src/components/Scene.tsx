@@ -53,10 +53,10 @@ export function Scene({ weights }: { weights: Weights }) {
         position={[0, 0, -2]}
         args={[20, 20]}
         cellSize={0.5}
-        cellColor="#1b2437"
+        cellColor="#161c30"
         sectionSize={2}
-        sectionColor="#2d3d5c"
-        fadeDistance={14}
+        sectionColor="#232c48"
+        fadeDistance={20}
         fadeStrength={1.5}
         infiniteGrid
       />
