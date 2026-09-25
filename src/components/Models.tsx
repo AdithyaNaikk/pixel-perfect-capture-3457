@@ -59,10 +59,23 @@ function useExists(url: string) {
 }
 
 /** Clones the GLTF scene, centres it and scales its largest side to `size`. */
-function Fitted({ url, size, rotation, faceZ = false }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean }) {
+function Fitted({ url, size, rotation, faceZ = false, opacity = 1 }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean; opacity?: number }) {
   const { scene } = useGLTF(url);
   const obj = useMemo(() => {
     const clone = scene.clone(true);
+    if (opacity < 1) {
+      clone.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        child.material = materials.map((material) => {
+          const faded = material.clone();
+          faded.transparent = true;
+          faded.opacity *= opacity;
+          faded.depthWrite = false;
+          return faded;
+        });
+      });
+    }
     if (faceZ) {
       // Stand the model on its edge: turn its thinnest axis toward +Z (flat face to the user).
       const d0 = new THREE.Box3().setFromObject(clone).getSize(new THREE.Vector3());
@@ -79,7 +92,7 @@ function Fitted({ url, size, rotation, faceZ = false }: { url: string; size: num
     g.add(clone);
     g.scale.setScalar(s);
     return g;
-  }, [scene, size, faceZ]);
+  }, [scene, size, faceZ, opacity]);
   return <primitive object={obj} rotation={rotation} />;
 }
 
@@ -91,6 +104,7 @@ function SafeModel({
   size: number;
   rotation?: [number, number, number];
   faceZ?: boolean;
+  opacity?: number;
   fallback?: ReactNode;
 }) {
   const ok = useExists(props.url);
@@ -112,7 +126,7 @@ export function SceneModels() {
         <SafeModel url={CHIP_URL} size={1} faceZ fallback={<ChipPlaceholder />} />
       </ChipSway>
       <group position={[2.0, 2.3, -4.65]}>
-        <SafeModel url={NEURON_URL} size={1.25} fallback={<NeuronPlaceholder />} />
+        <SafeModel url={NEURON_URL} size={1.25} opacity={0.12} fallback={<NeuronPlaceholder />} />
       </group>
       <group position={[3.65, 2.65, -4.6]}>
         <SafeModel url={BRAIN_URL} size={1.15} />

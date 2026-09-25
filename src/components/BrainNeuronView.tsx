@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import { BrainEye } from "./BrainEye";
-import { createNeuronGeometry, EYE_Y } from "@/lib/brainGeometry";
-import { SPIKE_COLOR } from "@/lib/layout";
+import { createNeuronGeometry, EYE_Y, eyeRetinaPositions } from "@/lib/brainGeometry";
+import { INPUT_CUBE_SIZE, INACTIVE_COLOR, SPIKE_COLOR } from "@/lib/layout";
 import { simulate, SNN_T, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";
@@ -20,6 +20,8 @@ const FIRE = new THREE.Color("#fff4a8");
 const WARM = new THREE.Color(SPIKE_COLOR);
 const COOL = new THREE.Color("#66baff");
 const BAR_IDLE = new THREE.Color("#76516f");
+const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
+const RECEPTOR_IDLE = new THREE.Color(INACTIVE_COLOR);
 
 interface Status {
   step: number;
@@ -62,12 +64,14 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const [status, setStatus] = useState<Status | null>(null);
   const clock = useRef<number | null>(null);
   const somaRef = useRef<THREE.Mesh>(null);
+  const receptorRef = useRef<THREE.InstancedMesh>(null);
   const haloRef = useRef<THREE.Mesh>(null);
   const pulseRef = useRef<THREE.InstancedMesh>(null);
   const axonPulseRef = useRef<THREE.Mesh>(null);
   const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const lastStep = useRef(-1);
   const neuronGeometry = useMemo(() => createNeuronGeometry(0.22), []);
+  const receptorPositions = useMemo(() => eyeRetinaPositions(centerX), [centerX]);
   const pulseEvents = useMemo<PulseEvent[]>(() => {
     if (!result) return [];
     const out: PulseEvent[] = [];
@@ -98,6 +102,21 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   }), []);
 
   useEffect(() => () => neuronGeometry.dispose(), [neuronGeometry]);
+
+  useEffect(() => {
+    const mesh = receptorRef.current;
+    if (!mesh) return;
+    const matrix = new THREE.Matrix4();
+    for (let i = 0; i < receptorPositions.length; i++) {
+      const position = receptorPositions[i];
+      if (!position) continue;
+      matrix.makeTranslation(position.x, position.y, position.z);
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, RECEPTOR_IDLE);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [receptorPositions]);
 
   useEffect(() => {
     const image = useAppStore.getState().inputImage;
@@ -135,6 +154,18 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     const flash = Math.max(0, 1 - spikeAge / 2.4);
     const material = soma.material as THREE.MeshBasicMaterial;
     material.color.copy(REST).lerp(CHARGED, charge).lerp(FIRE, flash);
+
+    const receptors = receptorRef.current;
+    const image = useAppStore.getState().inputImage;
+    if (receptors) {
+      for (let input = 0; input < receptorPositions.length; input++) {
+        const spiked = res.inputSpikes[cur]?.includes(input) ?? false;
+        tmp.color.copy(RECEPTOR_IDLE).lerp(RECEPTOR_BRIGHT, image?.[input] ?? 0);
+        if (spiked) tmp.color.copy(WARM);
+        receptors.setColorAt(input, tmp.color);
+      }
+      if (receptors.instanceColor) receptors.instanceColor.needsUpdate = true;
+    }
     const somaScale = 1 + flash * 0.28;
     soma.scale.setScalar(somaScale);
     halo.visible = flash > 0.01;
@@ -196,6 +227,10 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   return (
     <group name="brain-single-neuron">
       <BrainEye cx={centerX} />
+      <instancedMesh ref={receptorRef} args={[undefined, undefined, receptorPositions.length]} frustumCulled={false} renderOrder={1} raycast={() => null}>
+        <icosahedronGeometry args={[INPUT_CUBE_SIZE * 0.42, 0]} />
+        <meshBasicMaterial toneMapped={false} />
+      </instancedMesh>
       <OpticBundle />
       <mesh ref={somaRef} geometry={neuronGeometry} position={SOMA} rotation={[0, 0, 0]} renderOrder={1}>
         <meshBasicMaterial color={REST} toneMapped={false} />
