@@ -203,7 +203,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
 
   const NEURON_POS: [number, number, number] = [centerX, 1.62, -2.2];
   // Neuron is turned 90° about Y: dendrites toward +Z (AI input side), axon toward -Z (output side).
-  const HEAD_POS: [number, number, number] = [centerX, 0.95, -3.35];
+  const HEAD_POS: [number, number, number] = [centerX, 0.9, -3.6];
   // Face the user's start position (0, 1.6, 3).
   const headYaw = Math.atan2(0 - HEAD_POS[0], 3 - HEAD_POS[2]);
 
