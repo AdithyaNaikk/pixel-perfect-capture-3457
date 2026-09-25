@@ -69,6 +69,7 @@ export function SpikingPlayback(props: Props) {
     const img = useAppStore.getState().inputImage;
     if (runId === 0 || !img) return;
     setResult(simulate(img, weights, new Set<number>()));
+    useAppStore.getState().setSpiking({ done: false, prediction: null });
   }, [runId, weights]);
 
   // Start (or restart) playback.

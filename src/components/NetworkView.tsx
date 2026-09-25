@@ -118,6 +118,7 @@ export function NetworkView({
     outputTarget.current = result.output.map((value) => (maxOutput > 0 ? value / maxOutput : 0));
     activationStart.current = performance.now();
     setAiResult(result);
+    useAppStore.getState().setAiAnswer(result.prediction);
   }, [side, runId, inputImage, weights]);
 
   useFrame(() => {
