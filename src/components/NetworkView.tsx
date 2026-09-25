@@ -174,6 +174,14 @@ export function NetworkView({
       const max = index < inputLineCount ? maxInputLine : maxOutputLine;
       return max > 0 ? value / max : 0;
     });
+    const resetMesh = (mesh: THREE.InstancedMesh | null) => {
+      if (!mesh) return;
+      for (let i = 0; i < mesh.count; i++) mesh.setColorAt(i, INACTIVE);
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    };
+    resetMesh(inputRef.current);
+    resetMesh(hiddenRef.current);
+    resetMesh(outputRef.current);
     sweepElapsed.current = 0;
     if (winnerRef.current) winnerRef.current.visible = false;
     setAiResult(result);
