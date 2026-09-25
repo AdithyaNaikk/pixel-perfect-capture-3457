@@ -4,7 +4,7 @@ import * as THREE from "three";
 export function resumeAudio() {
   if (typeof window === "undefined") return;
   try {
-    const ctx = THREE.AudioContext.getContext();
+    const ctx = THREE.AudioContext.getContext() as unknown as BaseAudioContext;
     if (ctx.state !== "running") void ctx.resume();
   } catch {
     /* audio unavailable */

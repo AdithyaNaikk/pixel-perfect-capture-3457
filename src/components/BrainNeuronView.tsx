@@ -245,7 +245,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
 
       <group position={HEAD_POS} rotation={[0, headYaw, 0]}>
         <SimpleHead />
-        <group position={[0.34, 0.24, 0]} rotation={[0.55, 2.4, 0]}>
+        <group position={[0.4, 0.24, 0]} rotation={[0.55, 2.4, 0]}>
           <SimpleBrain ipsMat={ipsMat} />
           <group ref={ipsLabel} visible={false} position={[0, 0.2, 0]}>
             <Billboard>
