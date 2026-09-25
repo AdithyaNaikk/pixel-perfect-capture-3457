@@ -14,7 +14,8 @@ import {
 import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
-import { LESION_GREY } from "./SpikingPlayback";
+import { LESION_GREY, SpikingPlayback } from "./SpikingPlayback";
+import { BrainEye } from "./BrainEye";
 import { BRANCH_COLOR, CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, organicOffset, seedIn, seedOut, eyeRetinaPositions, nervePoint } from "@/lib/brainGeometry";
 export const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
 const BRAIN_TOP_IN = 3;
@@ -588,6 +589,25 @@ export function NetworkView({
             No spikes: each neuron computes one number, once.
           </Text>
         </>
+      )}
+
+      {side === "brain" && <BrainEye cx={centerX} />}
+      {side === "brain" && (
+        <SpikingPlayback
+          weights={weights}
+          color={color}
+          dim={DIM}
+          inputOff={INPUT_OFF}
+          inputRef={inputRef}
+          hiddenRef={hiddenRef}
+          outputRef={outputRef}
+          inputPos={inputPos}
+          hiddenPos={hiddenPos}
+          outputPos={outputPos}
+          inputOut={inputOut}
+          hiddenOut={hiddenOut}
+          panelX={hidX}
+        />
       )}
 
       <Text

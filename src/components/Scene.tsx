@@ -6,7 +6,6 @@ import { Guidance3D } from "./Guidance";
 import { SceneModels } from "./Models";
 import { useAppStore } from "@/lib/store";
 import { NetworkView } from "./NetworkView";
-import { BrainNeuronView } from "./BrainNeuronView";
 import type { Weights } from "@/lib/weights";
 
 export const AI_COLOR = "#5fd4f5";
@@ -33,7 +32,15 @@ export function Scene({ weights }: { weights: Weights }) {
         weights={weights}
         color={AI_COLOR}
       />
-      <BrainNeuronView weights={weights} centerX={BRAIN_X} />
+      <NetworkView
+        side="brain"
+        label="Brain network"
+        subtitle="brain-inspired neurons"
+        position={NET_POS}
+        centerX={BRAIN_X}
+        weights={weights}
+        color={BRAIN_COLOR}
+      />
 
       <Guidance3D />
       <Pedestal x={AI_X} color={AI_COLOR} />

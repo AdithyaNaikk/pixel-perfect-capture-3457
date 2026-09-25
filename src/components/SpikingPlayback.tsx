@@ -7,7 +7,50 @@ import { OUTPUT_RADIUS } from "@/lib/layout";
 import { curveControl, curvePoint, nervePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
 const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
 import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, SPIKE_COLOR } from "@/lib/layout";
-import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
+import { brainRun } from "@/lib/snn";
+
+/** Playback view of one snnRun result (cumulative counts and live leader derived from it). */
+interface SnnResult {
+  T: number;
+  inputSpikes: number[][];
+  hiddenSpikes: number[][];
+  outputSpikes: number[][];
+  counts: number[][];
+  leader: number[];
+  /** result.winner from snnRun (-1 = no answer). */
+  winner: number;
+  prediction: string;
+  decisionStep: number;
+}
+
+function toPlayback(img: Float32Array, weights: Weights, lesioned: Set<number>): SnnResult {
+  const r = brainRun(img, weights, lesioned);
+  const T = r.params.timesteps;
+  const counts: number[][] = [];
+  const leader: number[] = [];
+  const c = new Array(10).fill(0) as number[];
+  for (let t = 0; t < T; t++) {
+    for (const d of r.outputSpikes[t] ?? []) c[d] = c[d]! + 1;
+    counts.push(c.slice());
+    const v = r.outputPotential[t]!;
+    let best = 0;
+    for (let d = 1; d < 10; d++) if (c[d]! > c[best]! || (c[d] === c[best] && v[d]! > v[best]!)) best = d;
+    leader.push(best);
+  }
+  let d = T - 1;
+  while (d > 0 && leader[d - 1] === r.winner) d--;
+  return {
+    T,
+    inputSpikes: Array.from({ length: T }, () => []),
+    hiddenSpikes: r.hiddenSpikes,
+    outputSpikes: r.outputSpikes,
+    counts,
+    leader,
+    winner: r.winner,
+    prediction: r.winner < 0 ? "?" : String(r.winner),
+    decisionStep: d + 1,
+  };
+}
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";
 
@@ -81,7 +124,8 @@ export function SpikingPlayback(props: Props) {
   useEffect(() => {
     const img = useAppStore.getState().inputImage;
     if (runId === 0 || !img) return;
-    setResult(simulate(img, weights, useAppStore.getState().lesioned));
+    setResult(toPlayback(img, weights, useAppStore.getState().lesioned));
+    useAppStore.getState().setBrainCounts(null);
     useAppStore.getState().setSpiking({ done: false, prediction: null });
   }, [runId, weights]);
 
@@ -97,6 +141,7 @@ export function SpikingPlayback(props: Props) {
     const res = result;
     const dots = dotsRef.current;
     if (!res || clock.current === null || !dots) return;
+    const SNN_T = res.T;
     const speed = useAppStore.getState().speed;
     const dt = Math.min(rawDelta, 0.05);
     const p = Math.min(clock.current + ((dt * 1000) / STEP_MS) * speed, SNN_T + TRAVEL_STEPS + FLASH_MS / STEP_MS);
@@ -215,7 +260,8 @@ export function SpikingPlayback(props: Props) {
     }
     if (finished) {
       clock.current = null;
-      useAppStore.getState().setSpiking({ done: true, prediction: res.prediction });
+      useAppStore.getState().setSpiking({ done: true, prediction: res.winner < 0 ? null : res.winner });
+      useAppStore.getState().setBrainCounts([...res.counts[SNN_T - 1]!]);
     }
   });
 
@@ -245,12 +291,12 @@ export function SpikingPlayback(props: Props) {
       {result && status && (
         <>
           <Text position={[panelX, ANSWER_Y, LABEL_Z]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
-            {status.done ? `Brain: ${result.prediction}` : `Brain: ${status.leader} leading, ${status.spikes} spikes`}
+            {status.done ? `Brain: ${result.prediction}` : `Brain: ...  (${status.spikes} spikes so far)`}
           </Text>
           <Text position={[panelX, ANSWER_SUB_Y, LABEL_Z]} fontSize={0.05} color="#f3e2d7" anchorX="center" anchorY="middle">
             {status.done
-              ? `decided at step ${result.decisionStep} · ${result.synapticEvents.toLocaleString("en-US")} calculations`
-              : `step ${status.step}/${SNN_T}`}
+              ? result.winner < 0 ? "no answer: no output neuron fired" : `decided at step ${result.decisionStep}`
+              : `step ${status.step}/${result.T}`}
           </Text>
           <Text position={[panelX, ANSWER_SUB_Y - 0.13, LABEL_Z]} fontSize={0.045} color="#f3e2d7" anchorX="center" anchorY="middle">
             Spikes: each neuron fires pulses over time.
