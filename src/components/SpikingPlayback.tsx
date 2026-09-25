@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 import { OUTPUT_RADIUS } from "@/lib/layout";
-import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y } from "@/lib/layout";
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, SPIKE_COLOR } from "@/lib/layout";
 import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";
@@ -13,9 +13,9 @@ const STEP_MS = 50;
 const FLASH_MS = 120;
 const TRAVEL_STEPS = 2;
 const MAX_DOTS = 300;
-const FLASH = new THREE.Color("#ffd9a8");
-const BAR_MAX = 0.32;
-const BAR_H = 0.03;
+const FLASH = new THREE.Color(SPIKE_COLOR);
+const BAR_MAX = 0.55;
+const BAR_W = 0.05;
 export const LESION_GREY = new THREE.Color("#2a2a2e");
 
 interface Props {
@@ -38,6 +38,7 @@ interface Status {
   step: number;
   leader: number;
   done: boolean;
+  spikes: number;
 }
 
 export function SpikingPlayback(props: Props) {
@@ -54,8 +55,8 @@ export function SpikingPlayback(props: Props) {
   const tmp = useMemo(
     () => ({
       full: new THREE.Color(color),
-      base: new THREE.Color(color).multiplyScalar(dim),
-      inBase: new THREE.Color(color).multiplyScalar(inputOff),
+      base: new THREE.Color(INACTIVE_COLOR),
+      inBase: new THREE.Color(INACTIVE_COLOR),
       c: new THREE.Color(),
       m: new THREE.Matrix4(),
       v: new THREE.Vector3(),
@@ -81,7 +82,7 @@ export function SpikingPlayback(props: Props) {
     if (!result) return;
     clock.current = 0;
     lastStep.current = -1;
-    setStatus({ step: 0, leader: result.leader[0] ?? 0, done: false });
+    setStatus({ step: 0, leader: result.leader[0] ?? 0, done: false, spikes: 0 });
   }, [result, replayId]);
 
   useFrame((_, rawDelta) => {
@@ -185,8 +186,9 @@ export function SpikingPlayback(props: Props) {
       const bar = barRefs.current[o];
       if (!bar) continue;
       const len = Math.max(0.0001, (counts[o]! / maxC) * BAR_MAX);
-      bar.scale.x = len;
-      bar.position.x = outputPos[o]!.x + OUTPUT_RADIUS + 0.03 + len / 2;
+      // Bars grow upward above each output sphere.
+      bar.scale.y = len;
+      bar.position.y = outputPos[o]!.y + OUTPUT_RADIUS * 1.6 + 0.04 + len / 2;
       const mat = bar.material as THREE.MeshBasicMaterial;
       mat.color.copy(o === leader ? FLASH : tmp.full);
       mat.opacity = o === leader ? 1 : 0.45;
@@ -194,7 +196,7 @@ export function SpikingPlayback(props: Props) {
 
     if (cur !== lastStep.current || finished) {
       lastStep.current = cur;
-      setStatus({ step: cur + 1, leader, done: p >= SNN_T });
+      setStatus({ step: cur + 1, leader, done: p >= SNN_T, spikes: counts[leader] ?? 0 });
     }
     if (finished) {
       clock.current = null;
@@ -216,24 +218,24 @@ export function SpikingPlayback(props: Props) {
             ref={(m) => {
               barRefs.current[o] = m;
             }}
-            position={[pos.x + OUTPUT_RADIUS + 0.03, pos.y, 0]}
-            scale={[0.0001, 1, 1]}
+            position={[pos.x, pos.y + OUTPUT_RADIUS * 1.6 + 0.04, pos.z]}
+            scale={[1, 0.0001, 1]}
             renderOrder={2}
           >
-            <boxGeometry args={[1, BAR_H, 0.005]} />
+            <boxGeometry args={[BAR_W, 1, BAR_W]} />
             <meshBasicMaterial color={color} transparent opacity={0.45} toneMapped={false} />
           </mesh>
         ))}
 
       {result && status && (
         <>
-          <Text position={[panelX, ANSWER_Y, 0.02]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
-            {status.done ? `SPIKING: ${result.prediction}` : "SPIKING: …"}
+          <Text position={[panelX, ANSWER_Y, LABEL_Z]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
+            {status.done ? `Brain: ${result.prediction}` : `Brain: ${status.leader} leading, ${status.spikes} spikes`}
           </Text>
-          <Text position={[panelX, ANSWER_SUB_Y, 0.02]} fontSize={0.05} color="#f3e2d7" anchorX="center" anchorY="middle">
+          <Text position={[panelX, ANSWER_SUB_Y, LABEL_Z]} fontSize={0.05} color="#f3e2d7" anchorX="center" anchorY="middle">
             {status.done
               ? `decided at step ${result.decisionStep} · ${result.synapticEvents.toLocaleString("en-US")} calculations`
-              : `leader: ${status.leader} · step ${status.step}/${SNN_T}`}
+              : `step ${status.step}/${SNN_T}`}
           </Text>
         </>
       )}

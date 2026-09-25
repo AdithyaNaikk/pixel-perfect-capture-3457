@@ -23,8 +23,8 @@ export interface NetworkViewProps {
   label: string;
   subtitle: string;
   position: [number, number, number];
-  /** Local X of input, hidden and output layers. */
-  layerX: [number, number, number];
+  /** World X the network is centred on. */
+  centerX: number;
   weights: Weights;
   color: string;
 }
@@ -35,7 +35,8 @@ const DIM = 0.22;
 const INPUT_OFF = 0.015;
 const ACTIVATION_MS = 150;
 const CALCULATION_COUNT = "50,816";
-import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, TITLE_Y } from "@/lib/layout";
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, OUTPUT_Z, TITLE_Y } from "@/lib/layout";
+const INACTIVE = new THREE.Color(INACTIVE_COLOR);
 const X_COLOR = new THREE.Color("#ff3344");
 const X_ARM = HIDDEN_RADIUS * 2.2;
 
@@ -49,7 +50,7 @@ function useInstanced(
     const mesh = ref.current;
     if (!mesh) return;
     const dummy = new THREE.Object3D();
-    const base = new THREE.Color(color).multiplyScalar(DIM);
+    const base = INACTIVE.clone();
     for (let i = 0; i < positions.length; i++) {
       const position = positions[i];
       if (!position) continue;
@@ -68,7 +69,7 @@ export function NetworkView({
   label,
   subtitle,
   position,
-  layerX,
+  centerX,
   weights,
   color,
 }: NetworkViewProps) {
@@ -83,10 +84,10 @@ export function NetworkView({
   const inputImage = useAppStore((s) => s.inputImage);
   const runId = useAppStore((s) => s.runId);
 
-  const [inX, hidX, outX] = layerX;
-  const inputPos = useMemo(() => inputPositions(inX), [inX]);
-  const hiddenPos = useMemo(() => hiddenPositions(hidX), [hidX]);
-  const outputPos = useMemo(() => outputPositions(outX), [outX]);
+  const hidX = centerX;
+  const inputPos = useMemo(() => inputPositions(centerX), [centerX]);
+  const hiddenPos = useMemo(() => hiddenPositions(centerX), [centerX]);
+  const outputPos = useMemo(() => outputPositions(centerX), [centerX]);
 
   useInstanced(inputPos, color, inputRef);
   useInstanced(hiddenPos, color, hiddenRef);
@@ -108,7 +109,7 @@ export function NetworkView({
   // Input cube brightness follows the preprocessed image (no React re-render).
   useEffect(() => {
     const full = new THREE.Color(color);
-    const base = full.clone().multiplyScalar(INPUT_OFF);
+    const base = INACTIVE.clone();
     const tmp = new THREE.Color();
     const apply = (img: Float32Array | null) => {
       const mesh = inputRef.current;
@@ -141,7 +142,7 @@ export function NetworkView({
   const fadeColors = useMemo(
     () => ({
       full: new THREE.Color(color),
-      base: new THREE.Color(color).multiplyScalar(DIM),
+      base: INACTIVE.clone(),
       c: new THREE.Color(),
     }),
     [color],
@@ -184,7 +185,8 @@ export function NetworkView({
     const outputRanges: number[][] = Array.from({ length: hiddenPos.length }, () => []);
     const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, w: number) => {
       verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
-      const c = w >= 0 ? positive : NEGATIVE_COLOR;
+      void w;
+      const c = positive;
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
     };
 
@@ -225,25 +227,25 @@ export function NetworkView({
       geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
       return geometry;
     };
+    // One LineSegments per network: input->hidden followed by hidden->output.
+    const off = inputVerts.length;
+    const ranges = inputRanges.map((r, h) => [...r, ...(outputRanges[h] ?? []).map((o) => o + off)]);
+    const allVerts = inputVerts.concat(outputVerts);
     return {
-      input: makeGeometry(inputVerts, inputColors),
-      output: makeGeometry(outputVerts, outputColors),
-      inputOrig: new Float32Array(inputVerts),
-      outputOrig: new Float32Array(outputVerts),
-      inputRanges,
-      outputRanges,
+      all: makeGeometry(allVerts, inputColors.concat(outputColors)),
+      allOrig: new Float32Array(allVerts),
+      ranges,
     };
   }, [weights, color, inputPos, hiddenPos, outputPos]);
 
   useEffect(() => () => {
-    lineGeometries.input.dispose();
-    lineGeometries.output.dispose();
+    lineGeometries.all.dispose();
   }, [lineGeometries]);
 
   // Lesions: grey neurons, red X marks, hidden connection lines.
   const xRef = useRef<THREE.InstancedMesh>(null);
   useEffect(() => {
-    const full = new THREE.Color(color).multiplyScalar(DIM);
+    const full = INACTIVE.clone();
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const zAxis = new THREE.Vector3(0, 0, 1);
@@ -284,8 +286,7 @@ export function NetworkView({
         }
         xMesh.instanceMatrix.needsUpdate = true;
       }
-      collapse(lineGeometries.input, lineGeometries.inputOrig, lineGeometries.inputRanges, set);
-      collapse(lineGeometries.output, lineGeometries.outputOrig, lineGeometries.outputRanges, set);
+      collapse(lineGeometries.all, lineGeometries.allOrig, lineGeometries.ranges, set);
       prevSet = set;
     };
     apply(useAppStore.getState().lesioned);
@@ -311,11 +312,8 @@ export function NetworkView({
 
   return (
     <group position={position} name={`network-${side}`}>
-      <lineSegments geometry={lineGeometries.input} frustumCulled={false} renderOrder={-1}>
-        <lineBasicMaterial vertexColors transparent opacity={0.04} depthWrite={false} />
-      </lineSegments>
-      <lineSegments geometry={lineGeometries.output} frustumCulled={false} renderOrder={-1}>
-        <lineBasicMaterial vertexColors transparent opacity={0.08} depthWrite={false} />
+      <lineSegments geometry={lineGeometries.all} frustumCulled={false} renderOrder={-1}>
+        <lineBasicMaterial vertexColors transparent opacity={0.18} depthWrite={false} />
       </lineSegments>
 
       <instancedMesh
@@ -385,10 +383,10 @@ export function NetworkView({
             <torusGeometry args={[OUTPUT_RADIUS * 2.15, 0.004, 8, 48]} />
             <meshBasicMaterial color={color} transparent opacity={0.35} toneMapped={false} />
           </mesh>
-          <Text position={[hidX, ANSWER_Y, 0.02]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
+          <Text position={[hidX, ANSWER_Y, LABEL_Z]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
             {`AI: ${aiResult.prediction}`}
           </Text>
-          <Text position={[hidX, ANSWER_SUB_Y, 0.02]} fontSize={0.05} color="#d7e8ef" anchorX="center" anchorY="middle">
+          <Text position={[hidX, ANSWER_SUB_Y, LABEL_Z]} fontSize={0.05} color="#d7e8ef" anchorX="center" anchorY="middle">
             {`1 step · ${CALCULATION_COUNT} calculations`}
           </Text>
         </>
@@ -412,8 +410,8 @@ export function NetworkView({
       )}
 
       <Text
-        position={[hidX, TITLE_Y, 0]}
-        fontSize={0.14}
+        position={[hidX, TITLE_Y, LABEL_Z]}
+        fontSize={0.22}
         color={color}
         anchorX="center"
         anchorY="middle"
@@ -421,14 +419,38 @@ export function NetworkView({
         {label}
       </Text>
       <Text
-        position={[hidX, TITLE_Y - 0.13, 0]}
-        fontSize={0.055}
+        position={[hidX, TITLE_Y + 0.2, LABEL_Z]}
+        fontSize={0.07}
         color={color}
         anchorX="center"
         anchorY="middle"
       >
         {subtitle}
       </Text>
+      <OutputLabels side={side} color={color} outputPos={outputPos} />
     </group>
+  );
+}
+
+/** Per-network 0-9 labels under the output row; the winner is highlighted. */
+function OutputLabels({ side, color, outputPos }: { side: NetworkSide; color: string; outputPos: THREE.Vector3[] }) {
+  const winner = useAppStore((s) =>
+    side === "ai" ? s.aiAnswer : s.spiking?.done ? s.spiking.prediction : null,
+  );
+  return (
+    <>
+      {outputPos.map((p, i) => (
+        <Text
+          key={i}
+          position={[p.x, p.y - 0.19, OUTPUT_Z]}
+          fontSize={winner === i ? 0.15 : 0.11}
+          color={winner === i ? color : "#b7c0d4"}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {String(i)}
+        </Text>
+      ))}
+    </>
   );
 }
