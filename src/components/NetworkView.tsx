@@ -509,10 +509,12 @@ export function NetworkView({
       </instancedMesh>
 
       <instancedMesh
+        name={`${side}-hidden-neurons`}
         ref={hiddenRef}
         args={[undefined, undefined, hiddenPos.length]}
         frustumCulled={false}
         renderOrder={1}
+        pointerEventsType={{ allow: ["screen-mouse", "screen-touch", "screen-pen"] }}
         onClick={(e) => {
           const st = useAppStore.getState();
           if (!st.lesionMode || e.instanceId === undefined) return;

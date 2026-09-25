@@ -12,10 +12,16 @@ export interface SnnResult {
   counts: Int32Array[];
   /** Per timestep: leader after that step. */
   leader: number[];
+  /** Post-spike-reset membrane potential for every output neuron at each timestep. */
+  outputPotentials: Float32Array[];
   prediction: number;
   /** 1-based step after which the winner stays in the lead. */
   decisionStep: number;
   synapticEvents: number;
+  /** Final winner spikes divided by all output spikes. */
+  confidence: number;
+  /** True when no output neuron fired during the run. */
+  noAnswer: boolean;
 }
 
 function mulberry32(seed: number) {
@@ -62,9 +68,12 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
     outputSpikes: [],
     counts: [],
     leader: [],
+    outputPotentials: [],
     prediction: 0,
     decisionStep: 1,
     synapticEvents: 0,
+    confidence: 0,
+    noAnswer: true,
   };
 
   for (let t = 0; t < SNN_T; t++) {
@@ -102,6 +111,7 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
     res.outputSpikes.push(oS);
     res.counts.push(count.slice());
     res.leader.push(argmaxCounts(count, vO));
+    res.outputPotentials.push(vO.slice());
     res.synapticEvents += inS.length * HIDDEN_SIZE + hS.length * OUTPUT_SIZE;
   }
 
@@ -109,5 +119,12 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
   let d = SNN_T - 1;
   while (d > 0 && res.leader[d - 1] === res.prediction) d--;
   res.decisionStep = d + 1;
+  let totalSpikes = 0;
+  const finalCounts = res.counts[SNN_T - 1];
+  if (finalCounts) {
+    for (const value of finalCounts) totalSpikes += value;
+    res.noAnswer = totalSpikes === 0;
+    res.confidence = totalSpikes > 0 ? (finalCounts[res.prediction] ?? 0) / totalSpikes : 0;
+  }
   return res;
 }

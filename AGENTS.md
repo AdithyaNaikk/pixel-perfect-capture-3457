@@ -10,3 +10,4 @@
 <!-- LOVABLE:END -->
 
 - App-served 3D models use Lovable Assets pointer files under `src/assets`; this keeps large GLBs out of source control while preserving stable URLs.
+- The Brain visualization is one procedural output neuron driven from full recorded SNN telemetry; the hidden 64×10 network remains simulated but is not rendered.

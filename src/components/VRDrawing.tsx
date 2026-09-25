@@ -30,6 +30,7 @@ function VRDrawingInner() {
   const lesionMode = useAppStore((s) => s.lesionMode);
   const lesionedCount = useAppStore((s) => s.lesioned.size);
   const prevX = useRef(false);
+  const prevLeftTrigger = useRef(false);
   const prev = useRef({ a: false, b: false });
   /** Strokes in panel-local 2D coordinates (metres, y up). */
   const strokes = useRef<Point[][]>([]);
@@ -37,6 +38,9 @@ function VRDrawingInner() {
   /** Latest ray hit on the panel in local coordinates, or null when the ray is off the panel. */
   const hit = useRef<THREE.Vector3 | null>(null);
   const hitVec = useMemo(() => new THREE.Vector3(), []);
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const rayOrigin = useMemo(() => new THREE.Vector3(), []);
+  const rayDirection = useMemo(() => new THREE.Vector3(), []);
   const segCount = useRef(0);
 
   const geometry = useMemo(() => {
@@ -102,13 +106,25 @@ function VRDrawingInner() {
     hit.current = null;
   };
 
-  useFrame(() => {
+  useFrame(({ scene }) => {
     const x = pressed(left?.gamepad["x-button"]);
     if (x && !prevX.current) useAppStore.getState().toggleLesionMode();
     prevX.current = x;
+    const leftTrigger = pressed(left?.gamepad["xr-standard-trigger"]);
+    if (lesionMode && leftTrigger && !prevLeftTrigger.current && left?.object) {
+      const target = scene.getObjectByName("ai-hidden-neurons");
+      if (target) {
+        left.object.updateWorldMatrix(true, false);
+        left.object.getWorldPosition(rayOrigin);
+        rayDirection.set(0, 0, -1).transformDirection(left.object.matrixWorld);
+        raycaster.set(rayOrigin, rayDirection);
+        const hitNeuron = raycaster.intersectObject(target, false)[0];
+        if (hitNeuron?.instanceId !== undefined) useAppStore.getState().toggleLesion(hitNeuron.instanceId);
+      }
+    }
+    prevLeftTrigger.current = leftTrigger;
     if (!controller) return;
-    const trigger =
-      !useAppStore.getState().lesionMode && pressed(controller.gamepad["xr-standard-trigger"]);
+    const trigger = pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
     const b = pressed(controller.gamepad["b-button"]);
     const h = hit.current;
@@ -155,7 +171,15 @@ function VRDrawingInner() {
 
   return (
     <group position={PANEL_POS}>
-      <mesh renderOrder={0} onPointerMove={onMove} onPointerOver={onMove} onPointerLeave={onLeave} onPointerOut={onLeave}>
+      <mesh
+        renderOrder={0}
+        onPointerMove={(e) => { e.stopPropagation(); onMove(e); }}
+        onPointerOver={(e) => { e.stopPropagation(); onMove(e); }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onPointerLeave={onLeave}
+        onPointerOut={onLeave}
+      >
         <planeGeometry args={[PANEL_SIZE, PANEL_SIZE]} />
         <meshBasicMaterial color="#0b0f16" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
@@ -188,9 +212,6 @@ function VRDrawingInner() {
       />
       <Text position={[0.1, -h - 0.135, 0]} fontSize={0.022} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
         {`Lesioned: ${lesionedCount} / 64`}
-      </Text>
-      <Text position={[0, -h - 0.17, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
-        Trigger: draw · A: Submit · B: Clear · X: lesion mode
       </Text>
       <group position={[h + 0.12, 0, 0]}>
         <mesh>
