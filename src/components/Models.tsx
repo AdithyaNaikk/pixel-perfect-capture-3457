@@ -4,16 +4,13 @@ import { useXR, useXRInputSourceState } from "@react-three/xr";
 import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 
-import brainAsset from "@/assets/brain.glb.asset.json";
 import chipAsset from "@/assets/chip.glb.asset.json";
 import neuronAsset from "@/assets/neuron.glb.asset.json";
 import penAsset from "@/assets/pen.glb.asset.json";
 
 export const CHIP_URL = chipAsset.url;
 export const NEURON_URL = neuronAsset.url;
-export const BRAIN_URL = brainAsset.url;
 export const PEN_URL = penAsset.url;
-export const BRAIN_MODEL_POS: [number, number, number] = [3.65, 2.65, -4.6];
 
 /** Resolves to the set of model URLs that actually exist; preloads them. */
 const existing = new Map<string, Promise<boolean>>();
@@ -32,7 +29,7 @@ function checkModel(url: string): Promise<boolean> {
   }
   return p;
 }
-if (typeof window !== "undefined") [CHIP_URL, NEURON_URL, BRAIN_URL, PEN_URL].forEach(checkModel);
+if (typeof window !== "undefined") [CHIP_URL, NEURON_URL, PEN_URL].forEach(checkModel);
 
 class Boundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
   override state = { failed: false };

@@ -41,12 +41,3 @@ export const TERMINAL_POINTS: P[] = [
 const toVec = (p: P) => new THREE.Vector3(p[0], p[1], p[2]);
 export const dendriteCurves = () => DENDRITE_GUIDES.map((g) => new THREE.CatmullRomCurve3(g.map(toVec)));
 export const axonCurve = () => new THREE.CatmullRomCurve3(AXON_GUIDE.map(toVec));
-
-/**
- * Intraparietal sulcus glow patches on the brain model (local to the brain model group,
- * in metres). Elongated along Z (front-to-back) on the upper back of each hemisphere.
- */
-export const IPS_PATCHES: { position: P; scale: P; rotation: P }[] = [
-  { position: [-0.17, 0.2, -0.16], scale: [0.05, 0.035, 0.2], rotation: [0.35, 0, 0] },
-  { position: [0.17, 0.2, -0.16], scale: [0.05, 0.035, 0.2], rotation: [0.35, 0, 0] },
-];
