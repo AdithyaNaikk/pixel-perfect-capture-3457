@@ -14,4 +14,4 @@
 - Brain-side effects align to the unchanged neuron.glb via hand-tuned guide curves in `src/lib/brainGuides.ts` (toggle "Debug guides"); the GLB is never replaced by generated geometry.
 - VR right hand is arbitrated through `src/lib/rightHand.ts` so drawing (trigger) and teleport (grip) never run at once.
 - Brain simulation is the user-provided `snnRun` in `src/lib/snnRun.ts`, kept verbatim (ts-nocheck); app glue lives in `src/lib/snn.ts` — why: user requires the exact code.
-- Neuron firing is drawn by a shader patched onto neuron.glb's own materials (`src/lib/neuronShader.ts`), no separate glow objects — why: pulses must live in the model surface.
+- Brain side uses the network-with-eye view (NetworkView side="brain" + SpikingPlayback + BrainEye) driven by snnRun — why: user preferred this design over the single-neuron view.
