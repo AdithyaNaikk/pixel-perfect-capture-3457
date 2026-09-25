@@ -12,10 +12,40 @@ import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
 
 export function XRApp() {
-  const store = useMemo(() => createXRStore(), []);
+  const store = useMemo(
+    () =>
+      createXRStore({
+        offerSession: false,
+        emulate: false,
+        hand: false,
+        handTracking: false,
+        bodyTracking: false,
+        planeDetection: false,
+        meshDetection: false,
+        anchors: false,
+        hitTest: false,
+        depthSensing: false,
+        domOverlay: false,
+        layers: false,
+        customSessionInit: {
+          requiredFeatures: ["local-floor"],
+          optionalFeatures: [],
+        },
+      }),
+    [],
+  );
   const [weights, setWeights] = useState<Weights | null>(null);
   const [vrSupported, setVrSupported] = useState<boolean | null>(null);
   const [drawingExpanded, setDrawingExpanded] = useState(true);
+  const [vrError, setVrError] = useState<string | null>(null);
+  const enterVR = async () => {
+    setVrError(null);
+    try {
+      await store.enterVR();
+    } catch (e) {
+      setVrError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -81,7 +111,7 @@ export function XRApp() {
         <div className="flex flex-col items-end gap-2">
         {vrSupported === true ? (
           <button
-            onClick={() => store.enterVR()}
+            onClick={enterVR}
             className="pointer-events-auto rounded-full border border-cyan-300/40 bg-cyan-300/10 px-5 py-2 font-mono text-sm text-cyan-200 transition-colors hover:bg-cyan-300/20"
           >
             Enter VR
