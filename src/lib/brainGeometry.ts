@@ -9,12 +9,43 @@ export function rand01(seed: number) {
 
 const Z = new THREE.Vector3(0, 0, 1);
 
-/** Fixed, seeded twist around the forward (Z) axis for a Brain neuron instance. */
+const UP = new THREE.Vector3(0, 1, 0);
+const X = new THREE.Vector3(1, 0, 0);
+const _qt = new THREE.Quaternion();
+
+/** Fixed, seeded organic rotation for a Brain neuron instance (twist + slight tilt). */
 export function neuronQuat(index: number, out: THREE.Quaternion) {
-  return out.setFromAxisAngle(Z, rand01(index + 7.3) * Math.PI * 2);
+  out.setFromAxisAngle(Z, rand01(index + 7.3) * Math.PI * 2);
+  _qt.setFromAxisAngle(X, (rand01(index + 3.1) - 0.5) * 0.6);
+  out.premultiply(_qt);
+  _qt.setFromAxisAngle(UP, (rand01(index + 5.9) - 0.5) * 0.6);
+  return out.premultiply(_qt);
 }
 
-const UP = new THREE.Vector3(0, 1, 0);
+/** Seeded tissue-like offset for Brain hidden neuron h. */
+export function organicOffset(h: number, out: THREE.Vector3) {
+  return out.set(
+    (rand01(h + 11.1) - 0.5) * 0.12,
+    (rand01(h + 23.7) - 0.5) * 0.12,
+    (rand01(h + 37.3) - 0.5) * 0.3,
+  );
+}
+
+export const SOMA_COLOR = new THREE.Color("#ff5fc8");
+export const BRANCH_COLOR = new THREE.Color("#ffc2ea");
+
+function paint(g: THREE.BufferGeometry, c: THREE.Color) {
+  const n = g.attributes["position"]!.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    arr[i * 3] = c.r;
+    arr[i * 3 + 1] = c.g;
+    arr[i * 3 + 2] = c.b;
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(arr, 3));
+  g.deleteAttribute("uv");
+  return g;
+}
 
 function taper(from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number) {
   const dir = to.clone().sub(from);
@@ -23,45 +54,50 @@ function taper(from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number) {
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, dir.normalize()));
   const mid = from.clone().add(to).multiplyScalar(0.5);
   g.translate(mid.x, mid.y, mid.z);
-  return g;
+  return paint(g, BRANCH_COLOR);
 }
 
-/** Soma + 5 forked dendrites + axon (-Z) with terminal bulb, merged into one geometry. */
+/**
+ * Small magenta soma, 6 forked pale-pink dendrites (+Z / sideways, ~3r long),
+ * axon toward -Z (~4r) ending in 3 terminal bulbs. One merged geometry with vertex colours.
+ */
 export function createNeuronGeometry(r: number) {
   const parts: THREE.BufferGeometry[] = [];
-  const soma = new THREE.SphereGeometry(r, 9, 7);
+  const soma = new THREE.SphereGeometry(r, 8, 6);
   soma.scale(1, 0.85, 0.95);
-  parts.push(soma);
+  parts.push(paint(soma, SOMA_COLOR));
 
-  const dirs: [number, number, number][] = [
-    [0, 1, 0.45], [0.95, 0.3, 0.5], [-0.9, 0.4, 0.3], [0.55, -0.85, 0.4], [-0.5, -0.9, 0.55],
-  ];
-  dirs.forEach((d, k) => {
-    const dir = new THREE.Vector3(...d).normalize();
+  for (let k = 0; k < 6; k++) {
+    const ang = (k / 6) * Math.PI * 2 + rand01(k + 1) * 0.5;
+    const dir = new THREE.Vector3(Math.cos(ang), Math.sin(ang), 0.9 + rand01(k + 9) * 0.5).normalize();
     const start = dir.clone().multiplyScalar(r * 0.8);
-    const len = r * (1.5 + rand01(k + 1) * 0.5);
+    const len = r * (2.7 + rand01(k + 4) * 0.6);
     const end = dir.clone().multiplyScalar(r * 0.8 + len);
-    parts.push(taper(start, end, r * 0.22, r * 0.07));
-    // Small fork near the end.
-    const forkStart = start.clone().lerp(end, 0.7);
-    const side = new THREE.Vector3().crossVectors(dir, Z).normalize();
+    const fork = start.clone().lerp(end, 0.66);
+    parts.push(taper(start, fork, r * 0.3, r * 0.1));
+    const side = new THREE.Vector3().crossVectors(dir, Z);
     if (side.lengthSq() < 0.01) side.set(1, 0, 0);
-    const forkEnd = forkStart.clone().addScaledVector(dir, len * 0.35).addScaledVector(side, len * 0.3);
-    parts.push(taper(forkStart, forkEnd, r * 0.1, r * 0.04));
-  });
+    side.normalize();
+    const rest = len * 0.4;
+    for (const sgn of [1, -1]) {
+      const tip = fork.clone().addScaledVector(dir, rest).addScaledVector(side, sgn * rest * 0.55);
+      parts.push(taper(fork, tip, r * 0.1, r * 0.025));
+    }
+  }
 
   const axStart = new THREE.Vector3(0, 0, -r * 0.8);
-  const axEnd = new THREE.Vector3(0, 0, -r * 3.2);
-  parts.push(taper(axStart, axEnd, r * 0.2, r * 0.08));
-  const bulb = new THREE.SphereGeometry(r * 0.22, 6, 4);
-  bulb.translate(0, 0, -r * 3.3);
-  parts.push(bulb);
+  const axEnd = new THREE.Vector3(0, 0, -r * 4);
+  parts.push(taper(axStart, axEnd, r * 0.22, r * 0.07));
+  for (let b = 0; b < 3; b++) {
+    const a = (b / 3) * Math.PI * 2;
+    const tip = new THREE.Vector3(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.45, -r * 4.6);
+    parts.push(taper(axEnd, tip, r * 0.07, r * 0.03));
+    const bulb = new THREE.SphereGeometry(r * 0.14, 4, 3);
+    bulb.translate(tip.x, tip.y, tip.z);
+    parts.push(paint(bulb, BRANCH_COLOR));
+  }
 
-  const indexed = parts.map((p) => {
-    p.deleteAttribute("uv");
-    return p;
-  });
-  const merged = mergeGeometries(indexed, false)!;
+  const merged = mergeGeometries(parts, false)!;
   parts.forEach((p) => p.dispose());
   merged.computeBoundingSphere();
   return merged;
