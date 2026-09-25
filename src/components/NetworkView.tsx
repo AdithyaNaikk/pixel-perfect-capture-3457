@@ -35,6 +35,7 @@ const DIM = 0.22;
 const INPUT_OFF = 0.015;
 const ACTIVATION_MS = 150;
 const CALCULATION_COUNT = "50,816";
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, TITLE_Y } from "@/lib/layout";
 const X_COLOR = new THREE.Color("#ff3344");
 const X_ARM = HIDDEN_RADIUS * 2.2;
 
@@ -384,32 +385,12 @@ export function NetworkView({
             <torusGeometry args={[OUTPUT_RADIUS * 2.15, 0.004, 8, 48]} />
             <meshBasicMaterial color={color} transparent opacity={0.35} toneMapped={false} />
           </mesh>
-          <group position={[hidX, 1, 0.02]}>
-            <mesh position={[0, 0, -0.018]} renderOrder={1}>
-              <planeGeometry args={[0.98, 0.3]} />
-              <meshBasicMaterial color="#05060a" transparent opacity={0.72} depthWrite={false} />
-            </mesh>
-            <Text
-              position={[0, 0.05, 0]}
-              fontSize={0.085}
-              color={color}
-              anchorX="center"
-              anchorY="middle"
-              renderOrder={2}
-            >
-              {`AI answer: ${aiResult.prediction}`}
-            </Text>
-            <Text
-              position={[0, -0.065, 0]}
-              fontSize={0.045}
-              color="#d7e8ef"
-              anchorX="center"
-              anchorY="middle"
-              renderOrder={2}
-            >
-              {`1 step · ${CALCULATION_COUNT} calculations`}
-            </Text>
-          </group>
+          <Text position={[hidX, ANSWER_Y, 0.02]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
+            {`AI: ${aiResult.prediction}`}
+          </Text>
+          <Text position={[hidX, ANSWER_SUB_Y, 0.02]} fontSize={0.05} color="#d7e8ef" anchorX="center" anchorY="middle">
+            {`1 step · ${CALCULATION_COUNT} calculations`}
+          </Text>
         </>
       )}
 
@@ -431,7 +412,7 @@ export function NetworkView({
       )}
 
       <Text
-        position={[hidX, 0.72, 0]}
+        position={[hidX, TITLE_Y, 0]}
         fontSize={0.14}
         color={color}
         anchorX="center"
@@ -440,7 +421,7 @@ export function NetworkView({
         {label}
       </Text>
       <Text
-        position={[hidX, 0.58, 0]}
+        position={[hidX, TITLE_Y - 0.13, 0]}
         fontSize={0.055}
         color={color}
         anchorX="center"

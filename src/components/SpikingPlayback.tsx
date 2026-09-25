@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 import { OUTPUT_RADIUS } from "@/lib/layout";
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y } from "@/lib/layout";
 import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";
@@ -213,22 +214,16 @@ export function SpikingPlayback(props: Props) {
         ))}
 
       {result && status && (
-        <group position={[panelX, 1, 0.02]}>
-          <mesh position={[0, 0, -0.018]} renderOrder={1}>
-            <planeGeometry args={[1.35, 0.3]} />
-            <meshBasicMaterial color="#05060a" transparent opacity={0.72} depthWrite={false} />
-          </mesh>
-          <Text position={[0, 0.05, 0]} fontSize={status.done ? 0.07 : 0.065} color={color} anchorX="center" anchorY="middle" renderOrder={2}>
-            {status.done
-              ? `Spiking answer: ${result.prediction} (decided at step ${result.decisionStep})`
-              : `Thinking... step ${status.step}/${SNN_T}, leader: ${status.leader}`}
+        <>
+          <Text position={[panelX, ANSWER_Y, 0.02]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
+            {status.done ? `SPIKING: ${result.prediction}` : "SPIKING: …"}
           </Text>
-          <Text position={[0, -0.065, 0]} fontSize={0.045} color="#f3e2d7" anchorX="center" anchorY="middle" renderOrder={2}>
+          <Text position={[panelX, ANSWER_SUB_Y, 0.02]} fontSize={0.05} color="#f3e2d7" anchorX="center" anchorY="middle">
             {status.done
-              ? `${SNN_T} steps · ${result.synapticEvents.toLocaleString("en-US")} calculations`
-              : " "}
+              ? `decided at step ${result.decisionStep} · ${result.synapticEvents.toLocaleString("en-US")} calculations`
+              : `leader: ${status.leader} · step ${status.step}/${SNN_T}`}
           </Text>
-        </group>
+        </>
       )}
     </>
   );

@@ -14,7 +14,7 @@ import { loadWeights, type Weights } from "@/lib/weights";
 
 /** Half-width of the whole scene (input grid edge at x = 2.4 + margin). */
 const SCENE_HALF_W = 2.85;
-const SCENE_HALF_H = 1.0;
+const SCENE_HALF_H = 1.45; // includes titles and answers above the networks
 const MIN_DIST = 4.7; // camera z = 2.2 when the scene fits
 
 /** Pulls the desktop camera back until both input grids fit the viewport. */
@@ -24,7 +24,7 @@ function CameraFit({ panelExpanded }: { panelExpanded: boolean }) {
   const height = useThree((s) => s.size.height);
   useEffect(() => {
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const reservedHeight = panelExpanded ? Math.min(258, height * 0.46) : 0;
+    const reservedHeight = panelExpanded ? Math.min(296, height * 0.5) : 0;
     const availableHeight = Math.max(height - reservedHeight, 1);
     const viewportAspect = width / Math.max(height, 1);
     const verticalFit = (SCENE_HALF_H / tanV) * (height / availableHeight);
@@ -91,7 +91,7 @@ export function XRApp() {
         </XR>
       </Canvas>
 
-      <div className="pointer-events-none fixed inset-x-0 top-0 flex items-start justify-between p-5">
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-10 grid grid-cols-[minmax(0,1fr)_minmax(0,700px)_minmax(0,1fr)] items-start gap-4 p-5">
         <div className="font-mono text-sm tracking-widest text-slate-300">
           SAME WEIGHTS, TWO BRAINS
           {!weights && <span className="ml-2 opacity-60">loading weights…</span>}
@@ -106,6 +106,10 @@ export function XRApp() {
             </div>
           )}
         </div>
+        <div className="min-w-0 pt-1">
+          <GuidanceLine />
+        </div>
+        <div className="flex flex-col items-end gap-2">
         {vrSupported === true ? (
           <button
             onClick={() => store.enterVR()}
@@ -116,16 +120,15 @@ export function XRApp() {
         ) : vrSupported === false ? (
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
+          <LesionControls />
+        </div>
       </div>
-      <GuidanceLine />
       <div className="pointer-events-none fixed inset-x-0 bottom-1 flex justify-center">
         <span className="font-mono text-[10px] text-slate-500">
           {vrSupported ? HINT_VR : HINT_DESKTOP}
         </span>
       </div>
-      <PlaybackControls />
-      <LesionControls />
-      <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
+      <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} top={<PlaybackControls />} />
     </div>
   );
 }
@@ -137,7 +140,7 @@ function LesionControls() {
   const heal = useAppStore((s) => s.healAll);
   const btn = "rounded-full border border-red-400/40 bg-red-400/10 px-3 py-1 text-red-200 hover:bg-red-400/20";
   return (
-    <div className="fixed right-5 top-28 flex flex-col items-end gap-1.5 font-mono text-xs">
+    <div className="pointer-events-auto flex flex-col items-end gap-1.5 font-mono text-xs">
       <button onClick={toggle} aria-pressed={on} className={`${btn} ${on ? "bg-red-500/40 text-red-50" : ""}`}>
         Lesion mode {on ? "on" : "off"}
       </button>
@@ -164,7 +167,7 @@ function PlaybackControls() {
     { label: "1x", value: 1 },
   ];
   return (
-    <div className="fixed left-5 top-12 flex items-center gap-2 font-mono text-xs">
+    <div className="flex items-center gap-2 rounded-full bg-slate-950/80 p-1 font-mono text-xs">
       <button
         onClick={replay}
         className="rounded-full border border-orange-300/40 bg-orange-300/10 px-3 py-1 text-orange-200 hover:bg-orange-300/20"

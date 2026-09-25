@@ -52,7 +52,7 @@ function Guidance3DInner() {
   const text = useGuidanceText();
   const lesion = useLesionLine();
   return (
-    <group position={[0, 2.62, -2.5]}>
+    <group position={[0, 3.25, -2.5]}>
       <mesh position={[0, 0, -0.02]} renderOrder={1}>
         <planeGeometry args={[3.4, 0.6]} />
         <meshBasicMaterial color="#05060a" transparent opacity={0.6} depthWrite={false} />
@@ -94,8 +94,8 @@ export function GuidanceLine() {
   const text = useGuidanceText();
   const lesion = useLesionLine();
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-14 flex justify-center px-4">
-      <p className="max-w-xl text-center font-mono text-xs leading-relaxed text-slate-300/90">
+    <div className="pointer-events-none flex justify-center">
+      <p className="max-w-[700px] text-center font-mono text-xs leading-relaxed text-slate-300/90">
         {text}
         {lesion && <span className="block text-red-400">{lesion}</span>}
       </p>

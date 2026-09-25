@@ -11,7 +11,7 @@ export const HIDDEN_SPACING = 0.075;
 
 export const OUTPUT_COUNT = 10;
 export const OUTPUT_RADIUS = 0.035;
-export const OUTPUT_SPACING = 0.085;
+export const OUTPUT_SPACING = 0.1;
 
 /** Layers are flat XY planes facing +Z, placed at different X positions. */
 export const LAYER_GAP = 0.9;
@@ -55,3 +55,9 @@ export function outputPositions(x: number): THREE.Vector3[] {
     (_, i) => new THREE.Vector3(x, (half - i) * OUTPUT_SPACING, 0),
   );
 }
+
+/** Vertical layout above each network (relative to network centre). */
+export const TITLE_Y = 1.3;
+export const ANSWER_Y = 0.88;
+export const ANSWER_SIZE = 0.36;
+export const ANSWER_SUB_Y = 0.63;
