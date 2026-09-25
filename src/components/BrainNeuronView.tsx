@@ -235,6 +235,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
       <mesh ref={somaRef} geometry={neuronGeometry} position={SOMA} rotation={[0, 0, 0]} renderOrder={1}>
         <meshBasicMaterial color={REST} toneMapped={false} />
       </mesh>
+      <Axon />
       <mesh ref={haloRef} position={SOMA} visible={false} raycast={() => null} renderOrder={2}>
         <sphereGeometry args={[0.31, 12, 8]} />
         <meshBasicMaterial color={FIRE} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
@@ -294,6 +295,21 @@ function OpticBundle() {
       <meshBasicMaterial color="#ffc2ea" transparent opacity={0.15} depthWrite={false} />
     </mesh>
   ))}</>;
+}
+
+function Axon() {
+  const curve = useMemo(() => new THREE.CatmullRomCurve3([
+    new THREE.Vector3(...SOMA),
+    new THREE.Vector3(SOMA[0] + 0.08, SOMA[1] - 0.04, -3.0),
+    new THREE.Vector3(SOMA[0] - 0.06, SOMA[1] + 0.03, -3.65),
+    new THREE.Vector3(HEAD[0], HEAD[1] + 0.18, HEAD[2]),
+  ]), []);
+  return (
+    <mesh raycast={() => null}>
+      <tubeGeometry args={[curve, 28, 0.035, 6, false]} />
+      <meshBasicMaterial color="#8d73a2" toneMapped={false} />
+    </mesh>
+  );
 }
 
 function HeadAndThought({ answer }: { answer: string }) {

@@ -509,7 +509,7 @@ export function NetworkView({
       </instancedMesh>
 
       <instancedMesh
-        name={side === "ai" ? "ai-hidden-neurons" : undefined}
+        name={`${side}-hidden-neurons`}
         ref={hiddenRef}
         args={[undefined, undefined, hiddenPos.length]}
         frustumCulled={false}
