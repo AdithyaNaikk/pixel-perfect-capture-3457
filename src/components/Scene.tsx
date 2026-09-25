@@ -25,7 +25,7 @@ export function Scene({ weights }: { weights: Weights }) {
       <NetworkView
         side="ai"
         label="AI"
-        position={[-SEPARATION / 2, 1.5, -2.5]}
+        position={[-SEPARATION / 2, 1.5, -1.5]}
         rotation={AI_ROT}
         weights={weights}
         color={AI_COLOR}
@@ -33,7 +33,7 @@ export function Scene({ weights }: { weights: Weights }) {
       <NetworkView
         side="brain"
         label="BRAIN"
-        position={[SEPARATION / 2, 1.5, -2.5]}
+        position={[SEPARATION / 2, 1.5, -1.5]}
         rotation={BRAIN_ROT}
         weights={weights}
         color={BRAIN_COLOR}
