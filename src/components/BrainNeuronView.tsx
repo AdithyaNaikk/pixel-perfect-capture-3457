@@ -65,7 +65,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const uniforms = useMemo(() => createPulseUniforms(), []);
   const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const ipsMat = useMemo(
-    () => new THREE.MeshBasicMaterial({ color: "#ffe066", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+    () => new THREE.MeshBasicMaterial({ color: "#ffe066", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }),
     [],
   );
   useEffect(() => () => ipsMat.dispose(), [ipsMat]);
@@ -202,13 +202,14 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const damagedSpikes = runs ? (runs.damaged.outputCounts[runs.shown] ?? 0) : 0;
 
   const NEURON_POS: [number, number, number] = [centerX, 1.62, -2.2];
-  const HEAD_POS: [number, number, number] = [centerX + 1.05, 0.95, -2.2];
+  // Neuron is turned 90° about Y: dendrites toward +Z (AI input side), axon toward -Z (output side).
+  const HEAD_POS: [number, number, number] = [centerX, 0.9, -3.6];
   // Face the user's start position (0, 1.6, 3).
   const headYaw = Math.atan2(0 - HEAD_POS[0], 3 - HEAD_POS[2]);
 
   return (
     <group name="brain-single-neuron">
-      <group position={NEURON_POS}>
+      <group position={NEURON_POS} rotation={[0, Math.PI / 2, 0]}>
         <PulseNeuronModel uniforms={uniforms} />
         {debug && (
           <group scale={NEURON_SCALE}>
@@ -232,19 +233,19 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
       </group>
 
       <group position={HEAD_POS} rotation={[0, headYaw, 0]}>
-        <GlassHead />
-        <group position={[0, 0.2, 0]}>
-          <ProceduralBrain ipsMat={ipsMat} />
-          <group ref={ipsLabel} visible={false} position={[0, 0.13, 0]}>
+        <SimpleHead />
+        <group position={[0.25, 0.2, 0]}>
+          <SimpleBrain ipsMat={ipsMat} />
+          <group ref={ipsLabel} visible={false} position={[0, 0.1, 0]}>
             <Billboard>
-              <Text fontSize={0.022} color="#ffe066" anchorX="center" anchorY="middle" outlineWidth={0.002} outlineColor="#05060a">
+              <Text fontSize={0.018} color="#ffe066" anchorX="center" anchorY="middle" outlineWidth={0.002} outlineColor="#05060a">
                 Intraparietal sulcus: number meaning
               </Text>
             </Billboard>
           </group>
         </group>
       </group>
-      <ThoughtBubble position={[HEAD_POS[0], HEAD_POS[1] + 0.34, HEAD_POS[2]]} answer={answer} dotsRef={dotsRef} />
+      <ThoughtBubble position={[HEAD_POS[0], HEAD_POS[1] + 0.42, HEAD_POS[2]]} answer={answer} dotsRef={dotsRef} />
 
       <Text position={[centerX, 3.35, -2.2]} fontSize={0.22} color="#ff5fc8" anchorX="center" anchorY="middle">Brain network</Text>
       {res && status && (
@@ -263,9 +264,6 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
           )}
         </>
       )}
-      <Text position={[centerX, 0.3, -2.2]} maxWidth={2.1} fontSize={0.05} lineHeight={1.3} color="#d9bfd3" textAlign="center" anchorX="center" anchorY="middle">
-        Spikes: each neuron fires pulses over time. This is the winning output neuron; the network behind it runs hidden.
-      </Text>
     </group>
   );
 }
@@ -310,52 +308,72 @@ function Guides() {
 }
 
 /** Stylised glass head (~30 cm tall), facing +Z. */
-function GlassHead() {
-  const mat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: "#9fd8ff", transparent: true, opacity: 0.25, depthWrite: false, roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide }),
+/** Simple solid light-grey head (~30 cm tall incl. neck), lit-independent, no fog. */
+function SimpleHead() {
+  const { skin, eye } = useMemo(
+    () => ({
+      skin: new THREE.MeshLambertMaterial({ color: "#c8c8cc", emissive: "#6a6a70", fog: false }),
+      eye: new THREE.MeshBasicMaterial({ color: "#15151a", fog: false }),
+    }),
     [],
   );
-  useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => () => { skin.dispose(); eye.dispose(); }, [skin, eye]);
   return (
-    <group renderOrder={6}>
-      <mesh material={mat} position={[0, 0.205, -0.005]} scale={[0.9, 1, 1.05]} raycast={() => null}>
-        <sphereGeometry args={[0.1, 28, 20]} />
+    <group>
+      {/* neck */}
+      <mesh material={skin} position={[0, 0.04, -0.01]} raycast={() => null}>
+        <cylinderGeometry args={[0.042, 0.048, 0.08, 20]} />
       </mesh>
-      <mesh material={mat} position={[0, 0.125, 0.025]} scale={[0.78, 0.85, 0.85]} raycast={() => null}>
-        <sphereGeometry args={[0.075, 24, 16]} />
+      {/* jaw / face */}
+      <mesh material={skin} position={[0, 0.13, 0.015]} scale={[0.78, 0.95, 0.85]} raycast={() => null}>
+        <sphereGeometry args={[0.08, 28, 20]} />
       </mesh>
-      <mesh material={mat} position={[0, 0.175, 0.105]} rotation={[Math.PI / 2, 0, 0]} raycast={() => null}>
-        <coneGeometry args={[0.014, 0.035, 10]} />
+      {/* cranium */}
+      <mesh material={skin} position={[0, 0.2, -0.005]} scale={[0.92, 1, 1.08]} raycast={() => null}>
+        <sphereGeometry args={[0.1, 32, 24]} />
       </mesh>
-      <mesh material={mat} position={[0, 0.04, -0.01]} raycast={() => null}>
-        <cylinderGeometry args={[0.038, 0.045, 0.08, 16]} />
+      {/* nose */}
+      <mesh material={skin} position={[0, 0.155, 0.09]} rotation={[Math.PI / 2 - 0.3, 0, 0]} raycast={() => null}>
+        <coneGeometry args={[0.014, 0.04, 12]} />
       </mesh>
+      {/* ears */}
+      {[-1, 1].map((sd) => (
+        <mesh key={sd} material={skin} position={[sd * 0.093, 0.17, -0.005]} scale={[0.4, 1, 0.7]} raycast={() => null}>
+          <sphereGeometry args={[0.028, 14, 10]} />
+        </mesh>
+      ))}
+      {/* eyes */}
+      {[-1, 1].map((sd) => (
+        <mesh key={sd} material={eye} position={[sd * 0.032, 0.185, 0.083]} raycast={() => null}>
+          <sphereGeometry args={[0.009, 12, 8]} />
+        </mesh>
+      ))}
     </group>
   );
 }
 
-/** Two slightly flattened, gently bumpy hemispheres (~16 cm long) with a gap; IPS lines on the upper back. */
-function ProceduralBrain({ ipsMat }: { ipsMat: THREE.Material }) {
-  const RX = 0.036, RY = 0.047, RZ = 0.08, OFF = 0.04;
+/** Two bumpy hemispheres (~18 cm long) with a gap, pinkish-grey at 80% opacity; IPS lines on the upper back. */
+function SimpleBrain({ ipsMat }: { ipsMat: THREE.Material }) {
+  const RX = 0.04, RY = 0.052, RZ = 0.09, OFF = 0.046;
   const { geo, mat, ips } = useMemo(() => {
     const g = new THREE.SphereGeometry(1, 48, 32);
     const pos = g.getAttribute("position");
     const v = new THREE.Vector3();
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i);
-      const bump = 1 + 0.05 * Math.sin(9 * v.x + 1.3) * Math.sin(8 * v.y) * Math.sin(7 * v.z + 0.7) + 0.025 * Math.sin(21 * v.y + 13 * v.z);
+      const bump = 1 + 0.06 * Math.sin(11 * v.x + 1.3) * Math.sin(10 * v.y) * Math.sin(9 * v.z + 0.7) + 0.03 * Math.sin(23 * v.y + 15 * v.z);
       v.multiplyScalar(bump);
-      pos.setXYZ(i, v.x * RX, v.y * RY * (v.y < 0 ? 0.8 : 1), v.z * RZ);
+      pos.setXYZ(i, v.x * RX, v.y * RY * (v.y < 0 ? 0.75 : 1), v.z * RZ);
     }
     g.computeVertexNormals();
-    const m = new THREE.MeshStandardMaterial({ color: "#c9a7b4", transparent: true, opacity: 0.4, depthWrite: false, roughness: 0.8 });
+    const m = new THREE.MeshLambertMaterial({ color: "#c9a3b0", emissive: "#5a3f48", transparent: true, opacity: 0.8, fog: false });
     const tubes = [-1, 1].map((side) => {
       const pts: THREE.Vector3[] = [];
       const xn = 0.4;
-      const r = Math.sqrt(1 - xn * xn) * 1.04;
+      const r = Math.sqrt(1 - xn * xn) * 1.08;
       for (let i = 0; i <= 14; i++) {
-        const a = THREE.MathUtils.lerp(0.15, 1.25, i / 14); // from top toward the upper back (-Z)
-        pts.push(new THREE.Vector3(side * (OFF + xn * RX), Math.cos(a) * r * RY, -Math.sin(a) * r * RZ));
+        const t = THREE.MathUtils.lerp(0.15, 1.25, i / 14); // top toward the upper back (-Z)
+        pts.push(new THREE.Vector3(side * xn * RX, Math.cos(t) * r * RY, -Math.sin(t) * r * RZ));
       }
       return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.0025, 6, false);
     });
@@ -364,10 +382,11 @@ function ProceduralBrain({ ipsMat }: { ipsMat: THREE.Material }) {
   useEffect(() => () => { geo.dispose(); mat.dispose(); ips.forEach((t) => t.dispose()); }, [geo, mat, ips]);
   return (
     <group>
-      <mesh geometry={geo} material={mat} position={[-OFF, 0, 0]} renderOrder={8} raycast={() => null} />
-      <mesh geometry={geo} material={mat} position={[OFF, 0, 0]} renderOrder={8} raycast={() => null} />
-      {ips.map((t, i) => (
-        <mesh key={i} geometry={t} material={ipsMat} renderOrder={9} raycast={() => null} />
+      {[-1, 1].map((sd) => (
+        <group key={sd} position={[sd * OFF, 0, 0]}>
+          <mesh geometry={geo} material={mat} renderOrder={8} raycast={() => null} />
+          <mesh geometry={ips[sd < 0 ? 0 : 1]!} material={ipsMat} renderOrder={9} raycast={() => null} />
+        </group>
       ))}
     </group>
   );

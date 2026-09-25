@@ -3,7 +3,7 @@ import { useXR, useXRInputSourceState } from "@react-three/xr";
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import * as THREE from "three";
 
-import { rightHand } from "@/lib/rightHand";
+import { rightHand, teleportEvents } from "@/lib/rightHand";
 
 const ARC_POINTS = 48;
 const SPEED = 7;
@@ -66,7 +66,7 @@ function TeleportInner({ originRef }: { originRef: RefObject<THREE.Group | null>
       camera.getWorldPosition(fade.position);
       (fade.material as THREE.MeshBasicMaterial).opacity = k;
       fade.visible = true;
-      if (s.fade >= FADE_S * 2) { s.fade = -1; fade.visible = false; }
+      if (s.fade >= FADE_S * 2) { s.fade = -1; fade.visible = false; teleportEvents.done++; }
     }
 
     const grip = right?.gamepad["xr-standard-squeeze"]?.state === "pressed";
