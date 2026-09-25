@@ -22,8 +22,9 @@ function CameraFit({ panelExpanded }: { panelExpanded: boolean }) {
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const reservedHeight = panelExpanded ? Math.min(258, height * 0.46) : 0;
     const availableHeight = Math.max(height - reservedHeight, 1);
-    const aspect = width / availableHeight;
-    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * aspect), SCENE_HALF_H / tanV);
+    const viewportAspect = width / Math.max(height, 1);
+    const verticalFit = (SCENE_HALF_H / tanV) * (height / availableHeight);
+    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * viewportAspect), verticalFit);
     camera.position.set(FOCUS[0], FOCUS[1], FOCUS[2] + dist);
     camera.lookAt(...FOCUS);
     if (panelExpanded) {
