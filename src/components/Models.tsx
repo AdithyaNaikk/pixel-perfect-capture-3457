@@ -59,10 +59,17 @@ function useExists(url: string) {
 }
 
 /** Clones the GLTF scene, centres it and scales its largest side to `size`. */
-function Fitted({ url, size, rotation }: { url: string; size: number; rotation?: [number, number, number] }) {
+function Fitted({ url, size, rotation, faceZ = false }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean }) {
   const { scene } = useGLTF(url);
   const obj = useMemo(() => {
     const clone = scene.clone(true);
+    if (faceZ) {
+      // Stand the model on its edge: turn its thinnest axis toward +Z (flat face to the user).
+      const d0 = new THREE.Box3().setFromObject(clone).getSize(new THREE.Vector3());
+      if (d0.y <= d0.x && d0.y <= d0.z) clone.rotation.x = Math.PI / 2;
+      else if (d0.x <= d0.y && d0.x <= d0.z) clone.rotation.y = Math.PI / 2;
+      clone.updateMatrixWorld(true);
+    }
     const box = new THREE.Box3().setFromObject(clone);
     const dims = box.getSize(new THREE.Vector3());
     const centre = box.getCenter(new THREE.Vector3());
@@ -72,7 +79,7 @@ function Fitted({ url, size, rotation }: { url: string; size: number; rotation?:
     g.add(clone);
     g.scale.setScalar(s);
     return g;
-  }, [scene, size]);
+  }, [scene, size, faceZ]);
   return <primitive object={obj} rotation={rotation} />;
 }
 
@@ -83,6 +90,7 @@ function SafeModel({
   url: string;
   size: number;
   rotation?: [number, number, number];
+  faceZ?: boolean;
   fallback?: ReactNode;
 }) {
   const ok = useExists(props.url);
@@ -100,9 +108,9 @@ function SafeModel({
 export function SceneModels() {
   return (
     <>
-      <group position={[-2.4, 2.75, -4.6]}>
-        <SafeModel url={CHIP_URL} size={1} fallback={<ChipPlaceholder />} />
-      </group>
+      <ChipSway>
+        <SafeModel url={CHIP_URL} size={1} faceZ fallback={<ChipPlaceholder />} />
+      </ChipSway>
       <group position={[1.9, 2.8, -4.6]}>
         <SafeModel url={NEURON_URL} size={1} fallback={<NeuronPlaceholder />} />
       </group>
@@ -110,6 +118,19 @@ export function SceneModels() {
         <SafeModel url={BRAIN_URL} size={1.15} />
       </group>
     </>
+  );
+}
+
+/** Upright chip that only sways a few degrees around the vertical axis. */
+function ChipSway({ children }: { children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    if (ref.current) ref.current.rotation.y = Math.sin(clock.elapsedTime * 0.5) * 0.07;
+  });
+  return (
+    <group ref={ref} position={[-2.4, 2.75, -4.6]}>
+      {children}
+    </group>
   );
 }
 
@@ -145,7 +166,7 @@ function PenInner() {
 /** Placeholder chip: flat dark box with a glowing cyan core. */
 function ChipPlaceholder() {
   return (
-    <group rotation={[0.5, 0, 0]}>
+    <group rotation={[Math.PI / 2, 0, 0]}>
       <mesh>
         <boxGeometry args={[0.8, 0.08, 0.8]} />
         <meshBasicMaterial color="#1c2436" />

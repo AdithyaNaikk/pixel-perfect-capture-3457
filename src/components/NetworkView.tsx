@@ -15,7 +15,9 @@ import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
 import { LESION_GREY, SpikingPlayback } from "./SpikingPlayback";
-import { BRANCH_COLOR, CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, organicOffset, seedIn, seedOut } from "@/lib/brainGeometry";
+import { BRANCH_COLOR, CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, organicOffset, seedIn, seedOut, eyeRetinaPositions, nervePoint } from "@/lib/brainGeometry";
+import { BrainEye } from "./BrainEye";
+export const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
 const BRAIN_TOP_IN = 3;
 const BRAIN_TOP_OUT = 3;
 export const BRAIN_IDLE = new THREE.Color(1, 1, 1);
@@ -98,7 +100,7 @@ export function NetworkView({
   const runId = useAppStore((s) => s.runId);
 
   const hidX = centerX;
-  const inputPos = useMemo(() => inputPositions(centerX), [centerX]);
+  const inputPos = useMemo(() => (side === "brain" ? eyeRetinaPositions(centerX) : inputPositions(centerX)), [centerX, side]);
   const hiddenPos = useMemo(() => {
     const pts = hiddenPositions(centerX);
     if (side !== "brain") return pts;
@@ -143,7 +145,7 @@ export function NetworkView({
 
   // Input cube brightness follows the preprocessed image (no React re-render).
   useEffect(() => {
-    const full = new THREE.Color(color);
+    const full = side === "brain" ? RECEPTOR_BRIGHT.clone() : new THREE.Color(color);
     const base = INACTIVE.clone();
     const tmp = new THREE.Color();
     const apply = (img: Float32Array | null) => {
@@ -159,7 +161,7 @@ export function NetworkView({
     return useAppStore.subscribe((s, prev) => {
       if (s.inputImage !== prev.inputImage) apply(s.inputImage);
     });
-  }, [color, inputPos]);
+  }, [side, color, inputPos]);
 
   useEffect(() => {
     if (side !== "ai" || runId === 0 || !inputImage) return;
@@ -330,7 +332,7 @@ export function NetworkView({
     const ctrl = new THREE.Vector3();
     const p0 = new THREE.Vector3();
     const p1 = new THREE.Vector3();
-    const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, seed: number) => {
+    const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, seed: number, viaNerve = false) => {
       const c = positive;
       if (segs === 1) {
         verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
@@ -340,7 +342,8 @@ export function NetworkView({
       curveControl(a, b, seed, ctrl);
       p0.copy(a);
       for (let k = 1; k <= segs; k++) {
-        curvePoint(a, ctrl, b, k / segs, p1);
+        if (viaNerve) nervePoint(a, b, centerX, k / segs, p1);
+        else curvePoint(a, ctrl, b, k / segs, p1);
         verts.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
         colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
         p0.copy(p1);
@@ -360,7 +363,7 @@ export function NetworkView({
         const weight = row[i];
         if (!input || weight === undefined) continue;
         inputRanges[h]!.push(inputVerts.length);
-        push(inputVerts, inputColors, input, hidden, seedIn(i, h));
+        push(inputVerts, inputColors, input, hidden, seedIn(i, h), true);
       }
     }
 
@@ -397,7 +400,7 @@ export function NetworkView({
       ranges,
       stride: segs * 6,
     };
-  }, [side, weights, color, inputPos, hiddenPos, outputPos]);
+  }, [side, centerX, weights, color, inputPos, hiddenPos, outputPos]);
 
   useEffect(() => () => {
     lineGeometries.all.dispose();
@@ -584,6 +587,7 @@ export function NetworkView({
         </>
       )}
 
+      {side === "brain" && <BrainEye cx={centerX} />}
       {side === "brain" && (
         <SpikingPlayback
           weights={weights}
