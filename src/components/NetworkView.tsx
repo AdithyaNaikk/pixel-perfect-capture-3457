@@ -1,5 +1,6 @@
 import { Text } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 import {
@@ -10,6 +11,7 @@ import {
   inputPositions,
   outputPositions,
 } from "@/lib/layout";
+import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
 
@@ -30,12 +32,14 @@ const TOP_INCOMING = 6;
 const NEGATIVE_COLOR = new THREE.Color("#5b6b86");
 const DIM = 0.22;
 const INPUT_OFF = 0.015;
+const ACTIVATION_MS = 150;
+const CALCULATION_COUNT = "50,816";
 
 /** Sets instance matrices once and installs an instanceColor buffer. */
 function useInstanced(
   positions: THREE.Vector3[],
   color: string,
-  ref: React.RefObject<THREE.InstancedMesh | null>,
+  ref: RefObject<THREE.InstancedMesh | null>,
 ) {
   useEffect(() => {
     const mesh = ref.current;
@@ -43,7 +47,9 @@ function useInstanced(
     const dummy = new THREE.Object3D();
     const base = new THREE.Color(color).multiplyScalar(DIM);
     for (let i = 0; i < positions.length; i++) {
-      dummy.position.copy(positions[i]!);
+      const position = positions[i];
+      if (!position) continue;
+      dummy.position.copy(position);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
       mesh.setColorAt(i, base);
@@ -65,6 +71,12 @@ export function NetworkView({
   const inputRef = useRef<THREE.InstancedMesh>(null);
   const hiddenRef = useRef<THREE.InstancedMesh>(null);
   const outputRef = useRef<THREE.InstancedMesh>(null);
+  const activationStart = useRef<number | null>(null);
+  const hiddenTarget = useRef<Float32Array | null>(null);
+  const outputTarget = useRef<Float32Array | null>(null);
+  const [aiResult, setAiResult] = useState<ForwardResult | null>(null);
+  const inputImage = useAppStore((s) => s.inputImage);
+  const runId = useAppStore((s) => s.runId);
 
   const [inX, hidX, outX] = layerX;
   const inputPos = useMemo(() => inputPositions(inX), [inX]);
@@ -95,6 +107,44 @@ export function NetworkView({
     });
   }, [color, inputPos]);
 
+  useEffect(() => {
+    if (side !== "ai" || runId === 0 || !inputImage) return;
+
+    const result = forward(inputImage, weights, new Set<number>());
+    const maxHidden = Math.max(0, ...result.hidden);
+    const maxOutput = Math.max(0, ...result.output);
+    hiddenTarget.current = result.hidden.map((value) => (maxHidden > 0 ? value / maxHidden : 0));
+    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? value / maxOutput : 0));
+    activationStart.current = performance.now();
+    setAiResult(result);
+  }, [side, runId, inputImage, weights]);
+
+  useFrame(() => {
+    if (side !== "ai" || activationStart.current === null) return;
+    const hiddenMesh = hiddenRef.current;
+    const outputMesh = outputRef.current;
+    const hidden = hiddenTarget.current;
+    const output = outputTarget.current;
+    if (!hiddenMesh || !outputMesh || !hidden || !output) return;
+
+    const full = new THREE.Color(color);
+    const base = full.clone().multiplyScalar(DIM);
+    const tmp = new THREE.Color();
+    const progress = Math.min((performance.now() - activationStart.current) / ACTIVATION_MS, 1);
+
+    for (let i = 0; i < hidden.length; i++) {
+      tmp.copy(base).lerp(full, (hidden[i] ?? 0) * progress);
+      hiddenMesh.setColorAt(i, tmp);
+    }
+    for (let i = 0; i < output.length; i++) {
+      tmp.copy(base).lerp(full, (output[i] ?? 0) * progress);
+      outputMesh.setColorAt(i, tmp);
+    }
+    if (hiddenMesh.instanceColor) hiddenMesh.instanceColor.needsUpdate = true;
+    if (outputMesh.instanceColor) outputMesh.instanceColor.needsUpdate = true;
+    if (progress >= 1) activationStart.current = null;
+  });
+
   const lineGeometries = useMemo(() => {
     const positive = new THREE.Color(color);
     const inputVerts: number[] = [];
@@ -110,18 +160,30 @@ export function NetworkView({
 
     // Input -> hidden: top 6 incoming weights per hidden neuron.
     for (let h = 0; h < weights.w1.length; h++) {
-      const row = weights.w1[h]!;
+      const row = weights.w1[h];
+      const hidden = hiddenPos[h];
+      if (!row || !hidden) continue;
       const idx = Array.from(row.keys())
-        .sort((a, b) => Math.abs(row[b]!) - Math.abs(row[a]!))
+        .sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0))
         .slice(0, TOP_INCOMING);
-       for (const i of idx) push(inputVerts, inputColors, inputPos[i]!, hiddenPos[h]!, row[i]!);
+       for (const i of idx) {
+        const input = inputPos[i];
+        const weight = row[i];
+        if (!input || weight === undefined) continue;
+        push(inputVerts, inputColors, input, hidden, weight);
+      }
     }
 
     // Hidden -> output: all connections.
     for (let o = 0; o < weights.w2.length; o++) {
-      const row = weights.w2[o]!;
+      const row = weights.w2[o];
+      const output = outputPos[o];
+      if (!row || !output) continue;
       for (let h = 0; h < row.length; h++) {
-         push(outputVerts, outputColors, hiddenPos[h]!, outputPos[o]!, row[h]!);
+        const hidden = hiddenPos[h];
+        const weight = row[h];
+        if (!hidden || weight === undefined) continue;
+        push(outputVerts, outputColors, hidden, output, weight);
       }
     }
 
@@ -141,6 +203,8 @@ export function NetworkView({
     lineGeometries.input.dispose();
     lineGeometries.output.dispose();
   }, [lineGeometries]);
+
+  const winnerPosition = aiResult ? outputPos[aiResult.prediction] : undefined;
 
   return (
     <group position={position} name={`network-${side}`}>
@@ -168,11 +232,7 @@ export function NetworkView({
         renderOrder={1}
       >
         <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
-        <meshStandardMaterial
-          toneMapped={false}
-          emissive={color}
-          emissiveIntensity={0.25}
-        />
+        <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
 
       <instancedMesh
@@ -182,12 +242,47 @@ export function NetworkView({
         renderOrder={1}
       >
         <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
-        <meshStandardMaterial
-          toneMapped={false}
-          emissive={color}
-          emissiveIntensity={0.3}
-        />
+        <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
+
+      {side === "ai" && aiResult && winnerPosition && (
+        <>
+          <mesh position={[winnerPosition.x, winnerPosition.y, 0.018]} renderOrder={2}>
+            <torusGeometry args={[OUTPUT_RADIUS * 1.55, 0.006, 8, 48]} />
+            <meshBasicMaterial color={color} transparent opacity={0.95} toneMapped={false} />
+          </mesh>
+          <mesh position={[winnerPosition.x, winnerPosition.y, 0.014]} renderOrder={2}>
+            <torusGeometry args={[OUTPUT_RADIUS * 2.15, 0.004, 8, 48]} />
+            <meshBasicMaterial color={color} transparent opacity={0.35} toneMapped={false} />
+          </mesh>
+          <group position={[hidX, 1, 0.02]}>
+            <mesh position={[0, 0, -0.018]} renderOrder={1}>
+              <planeGeometry args={[0.98, 0.3]} />
+              <meshBasicMaterial color="#05060a" transparent opacity={0.72} depthWrite={false} />
+            </mesh>
+            <Text
+              position={[0, 0.05, 0]}
+              fontSize={0.085}
+              color={color}
+              anchorX="center"
+              anchorY="middle"
+              renderOrder={2}
+            >
+              {`AI answer: ${aiResult.prediction}`}
+            </Text>
+            <Text
+              position={[0, -0.065, 0]}
+              fontSize={0.045}
+              color="#d7e8ef"
+              anchorX="center"
+              anchorY="middle"
+              renderOrder={2}
+            >
+              {`1 step · ${CALCULATION_COUNT} calculations`}
+            </Text>
+          </group>
+        </>
+      )}
 
 
       <Text
