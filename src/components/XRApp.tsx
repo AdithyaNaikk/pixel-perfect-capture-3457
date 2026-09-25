@@ -1,10 +1,32 @@
 import { OrbitControls } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
+import * as THREE from "three";
 import { XR, createXRStore } from "@react-three/xr";
 import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { loadWeights, type Weights } from "@/lib/weights";
+
+/** Half-width of the whole scene (input grid edge at x = 2.4 + margin). */
+const SCENE_HALF_W = 2.85;
+const SCENE_HALF_H = 1.0;
+const MIN_DIST = 4.7; // camera z = 2.2 when the scene fits
+
+/** Pulls the desktop camera back until both input grids fit the viewport. */
+function CameraFit() {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const width = useThree((s) => s.size.width);
+  const height = useThree((s) => s.size.height);
+  useEffect(() => {
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const aspect = width / Math.max(height, 1);
+    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * aspect), SCENE_HALF_H / tanV);
+    camera.position.set(FOCUS[0], FOCUS[1], FOCUS[2] + dist);
+    camera.lookAt(...FOCUS);
+    camera.updateProjectionMatrix();
+  }, [camera, width, height]);
+  return null;
+}
 
 export function XRApp() {
   const store = useMemo(() => createXRStore(), []);
@@ -41,7 +63,8 @@ export function XRApp() {
       >
         <XR store={store}>
           <color attach="background" args={["#05060a"]} />
-          <fog attach="fog" args={["#05060a", 3, 12]} />
+          <fog attach="fog" args={["#05060a", 3, 14]} />
+          <CameraFit />
           {weights && <Scene weights={weights} />}
           <OrbitControls target={FOCUS} enablePan={false} makeDefault />
         </XR>
