@@ -23,6 +23,7 @@ export function Scene({ weights }: { weights: Weights }) {
       <NetworkView
         side="ai"
         label="AI"
+        subtitle="artificial neurons"
         position={NET_POS}
         layerX={[-2.4, -1.5, -0.6]}
         weights={weights}
@@ -30,7 +31,8 @@ export function Scene({ weights }: { weights: Weights }) {
       />
       <NetworkView
         side="brain"
-        label="BRAIN"
+        label="SPIKING"
+        subtitle="brain-inspired neurons"
         position={NET_POS}
         layerX={[2.4, 1.5, 0.6]}
         weights={weights}

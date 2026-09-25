@@ -1,11 +1,17 @@
 import { useEffect, useRef } from "react";
 
+import { Button } from "@/components/ui/button";
 import { preprocessStrokes, type Point } from "@/lib/preprocess";
 import { useAppStore } from "@/lib/store";
 
 const SIZE = 280;
 
-export function DrawingPanel() {
+interface DrawingPanelProps {
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}
+
+export function DrawingPanel({ expanded, onExpandedChange }: DrawingPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const strokes = useRef<Point[][]>([]);
@@ -53,14 +59,16 @@ export function DrawingPanel() {
   }, [inputImage]);
 
   const pt = (e: React.PointerEvent): Point => {
-    const r = canvasRef.current!.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const r = canvas.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / r.width) * SIZE, y: ((e.clientY - r.top) / r.height) * SIZE };
   };
 
   const onDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    canvasRef.current!.setPointerCapture(e.pointerId);
+    canvasRef.current?.setPointerCapture(e.pointerId);
     drawing.current = true;
     strokes.current.push([pt(e)]);
     redraw();
@@ -68,7 +76,9 @@ export function DrawingPanel() {
   const onMove = (e: React.PointerEvent) => {
     e.stopPropagation();
     if (!drawing.current) return;
-    strokes.current[strokes.current.length - 1]!.push(pt(e));
+    const stroke = strokes.current.at(-1);
+    if (!stroke) return;
+    stroke.push(pt(e));
     redraw();
   };
   const onUp = (e: React.PointerEvent) => {
@@ -77,47 +87,70 @@ export function DrawingPanel() {
   };
 
   return (
-    <div className="pointer-events-auto fixed bottom-4 left-4 flex items-end gap-3 rounded-lg border border-slate-700/60 bg-slate-950/80 p-3 font-mono text-xs text-slate-300">
-      <div className="flex flex-col gap-2">
-        <canvas
-          ref={canvasRef}
-          width={SIZE}
-          height={SIZE}
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerCancel={onUp}
-          onWheel={(e) => e.stopPropagation()}
-          style={{ width: SIZE, height: SIZE, touchAction: "none", cursor: "crosshair" }}
-          className="rounded border border-slate-700"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              strokes.current = [];
-              redraw();
-            }}
-            className="flex-1 rounded border border-slate-600 px-3 py-1.5 hover:bg-slate-800"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => run(preprocessStrokes(strokes.current))}
-            className="flex-1 rounded border border-cyan-300/50 bg-cyan-300/10 px-3 py-1.5 text-cyan-200 hover:bg-cyan-300/20"
-          >
-            Run
-          </button>
-        </div>
-      </div>
-      <div className="flex flex-col items-center gap-1">
-        <canvas
-          ref={previewRef}
-          width={28}
-          height={28}
-          style={{ width: 112, height: 112, imageRendering: "pixelated" }}
-          className="border border-slate-700"
-        />
-        <span className="opacity-60">28×28</span>
+    <div className="pointer-events-auto fixed bottom-3 left-1/2 z-10 -translate-x-1/2 font-mono text-xs text-slate-300">
+      <div className="flex flex-col items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange(!expanded)}
+          className="h-8 border-slate-600 bg-slate-950/90 px-3 font-mono text-slate-200 hover:bg-slate-800 hover:text-slate-100"
+        >
+          ✎ Draw
+        </Button>
+
+        {expanded && (
+          <div className="rounded-lg border border-slate-700/60 bg-slate-950/90 p-2.5 shadow-xl">
+            <div className="flex items-start justify-center gap-2.5">
+              <canvas
+                ref={canvasRef}
+                width={SIZE}
+                height={SIZE}
+                onPointerDown={onDown}
+                onPointerMove={onMove}
+                onPointerUp={onUp}
+                onPointerCancel={onUp}
+                onWheel={(e) => e.stopPropagation()}
+                style={{ width: 180, height: 180, touchAction: "none", cursor: "crosshair" }}
+                className="shrink-0 rounded border border-slate-700"
+              />
+              <div className="flex shrink-0 flex-col items-center gap-1">
+                <canvas
+                  ref={previewRef}
+                  width={28}
+                  height={28}
+                  style={{ width: 84, height: 84, imageRendering: "pixelated" }}
+                  className="border border-slate-700"
+                />
+                <span className="opacity-60">28×28</span>
+              </div>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  strokes.current = [];
+                  redraw();
+                }}
+                className="h-8 flex-1 border-slate-600 bg-transparent font-mono text-slate-200 hover:bg-slate-800 hover:text-slate-100"
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => run(preprocessStrokes(strokes.current))}
+                className="h-8 flex-1 border-cyan-300/50 bg-cyan-300/10 font-mono text-cyan-200 hover:bg-cyan-300/20 hover:text-cyan-100"
+              >
+                Run
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
