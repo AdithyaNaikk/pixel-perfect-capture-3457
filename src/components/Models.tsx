@@ -27,7 +27,7 @@ function checkModel(url: string): Promise<boolean> {
 }
 if (typeof window !== "undefined") [CHIP_URL, NEURON_URL, PEN_URL].forEach(checkModel);
 
-class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class Boundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -36,7 +36,7 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
     console.warn("[models] failed to load model", err);
   }
   override render() {
-    return this.state.failed ? null : this.props.children;
+    return this.state.failed ? (this.props.fallback ?? null) : this.props.children;
   }
 }
 
@@ -70,11 +70,19 @@ function Fitted({ url, size, rotation }: { url: string; size: number; rotation?:
   return <primitive object={obj} rotation={rotation} />;
 }
 
-function SafeModel(props: { url: string; size: number; rotation?: [number, number, number] }) {
+function SafeModel({
+  fallback = null,
+  ...props
+}: {
+  url: string;
+  size: number;
+  rotation?: [number, number, number];
+  fallback?: ReactNode;
+}) {
   const ok = useExists(props.url);
-  if (!ok) return null;
+  if (!ok) return <>{fallback}</>;
   return (
-    <Boundary>
+    <Boundary fallback={fallback}>
       <Suspense fallback={null}>
         <Fitted {...props} />
       </Suspense>
@@ -86,11 +94,11 @@ function SafeModel(props: { url: string; size: number; rotation?: [number, numbe
 export function SceneModels() {
   return (
     <>
-      <group position={[-1.5, 2.6, -3.4]}>
-        <SafeModel url={CHIP_URL} size={1} />
+      <group position={[-2.4, 2.75, -4.6]}>
+        <SafeModel url={CHIP_URL} size={1} fallback={<ChipPlaceholder />} />
       </group>
-      <group position={[1.5, 2.6, -3.4]}>
-        <SafeModel url={NEURON_URL} size={1} />
+      <group position={[1.9, 2.8, -4.6]}>
+        <SafeModel url={NEURON_URL} size={1} fallback={<NeuronPlaceholder />} />
       </group>
     </>
   );
@@ -121,6 +129,51 @@ function PenInner() {
       <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -0.06]}>
         <SafeModel url={PEN_URL} size={0.15} />
       </group>
+    </group>
+  );
+}
+
+/** Placeholder chip: flat dark box with a glowing cyan core. */
+function ChipPlaceholder() {
+  return (
+    <group rotation={[0.5, 0, 0]}>
+      <mesh>
+        <boxGeometry args={[0.8, 0.08, 0.8]} />
+        <meshBasicMaterial color="#1c2436" />
+      </mesh>
+      <mesh position={[0, 0.05, 0]}>
+        <boxGeometry args={[0.36, 0.03, 0.36]} />
+        <meshBasicMaterial color="#5fd4f5" toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+const BRANCHES: { rot: [number, number, number]; len: number }[] = [
+  { rot: [0, 0, 0.5], len: 0.35 },
+  { rot: [0, 0, -0.6], len: 0.4 },
+  { rot: [0, 0, 2.4], len: 0.3 },
+  { rot: [0, 0, -2.3], len: 0.35 },
+  { rot: [0.9, 0, 0.1], len: 0.3 },
+  { rot: [0, 0, Math.PI], len: 0.45 },
+];
+
+/** Placeholder neuron: sphere with a few branching cylinders. */
+function NeuronPlaceholder() {
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[0.16, 20, 14]} />
+        <meshBasicMaterial color="#ff5fc8" toneMapped={false} />
+      </mesh>
+      {BRANCHES.map((b, i) => (
+        <group key={i} rotation={b.rot}>
+          <mesh position={[0, 0.14 + b.len / 2, 0]}>
+            <cylinderGeometry args={[0.012, 0.025, b.len, 6]} />
+            <meshBasicMaterial color="#c24a9c" />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
