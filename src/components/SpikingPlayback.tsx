@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
-import { HIDDEN_RADIUS, OUTPUT_RADIUS } from "@/lib/layout";
+import { OUTPUT_RADIUS } from "@/lib/layout";
 import { curveControl, curvePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
 import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, SPIKE_COLOR } from "@/lib/layout";
 import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
@@ -15,6 +15,9 @@ const FLASH_MS = 120;
 const TRAVEL_STEPS = 2;
 const MAX_DOTS = 300;
 const FLASH = new THREE.Color(SPIKE_COLOR);
+/** Instance tint that, multiplied by the pink/magenta vertex colours, reads as orange. */
+const NEURON_FLASH = new THREE.Color(1, 1.25, 0.5);
+const NEURON_IDLE = new THREE.Color(1, 1, 1);
 const BAR_MAX = 0.55;
 const BAR_W = 0.05;
 export const LESION_GREY = new THREE.Color("#2a2a2e");
@@ -32,6 +35,7 @@ interface Props {
   outputPos: THREE.Vector3[];
   /** For each input pixel, the hidden neurons it has a DRAWN connection to. */
   inputOut: number[][];
+  hiddenOut: number[][];
   panelX: number;
 }
 
@@ -43,7 +47,7 @@ interface Status {
 }
 
 export function SpikingPlayback(props: Props) {
-  const { weights, color, dim, inputOff, inputRef, hiddenRef, outputRef, inputPos, hiddenPos, outputPos, inputOut, panelX } = props;
+  const { weights, color, dim, inputOff, inputRef, hiddenRef, outputRef, inputPos, hiddenPos, outputPos, inputOut, hiddenOut, panelX } = props;
   const runId = useAppStore((s) => s.runId);
   const replayId = useAppStore((s) => s.replayId);
   const [result, setResult] = useState<SnnResult | null>(null);
@@ -52,7 +56,6 @@ export function SpikingPlayback(props: Props) {
   const dotsRef = useRef<THREE.InstancedMesh>(null);
   const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const lastStep = useRef(-1);
-  const glowRef = useRef<THREE.InstancedMesh>(null);
   const nH = hiddenPos.length;
 
   const tmp = useMemo(
@@ -66,33 +69,12 @@ export function SpikingPlayback(props: Props) {
       q: new THREE.Quaternion(),
       sv: new THREE.Vector3(),
       ctrl: new THREE.Vector3(),
-      glowBase: new THREE.Color(color).multiplyScalar(0.08),
-      glowFlash: FLASH.clone().multiplyScalar(0.55),
-      black: new THREE.Color(0, 0, 0),
       hidden: new Float32Array(hiddenPos.length),
       output: new Float32Array(outputPos.length),
       input: new Float32Array(inputPos.length),
     }),
     [color, dim, inputOff, hiddenPos.length, outputPos.length, inputPos.length],
   );
-
-  // Soft glow halos: hidden matrices fixed, colours faint by default.
-  useEffect(() => {
-    const g = glowRef.current;
-    if (!g) return;
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const sc = new THREE.Vector3();
-    for (let i = 0; i < nH + outputPos.length; i++) {
-      const pos = i < nH ? hiddenPos[i]! : outputPos[i - nH]!;
-      const s = i < nH ? HIDDEN_RADIUS * 1.9 : OUTPUT_RADIUS * 1.9;
-      sc.set(s, s, s);
-      g.setMatrixAt(i, m.compose(pos, q, sc));
-      g.setColorAt(i, tmp.glowBase);
-    }
-    g.instanceMatrix.needsUpdate = true;
-    if (g.instanceColor) g.instanceColor.needsUpdate = true;
-  }, [hiddenPos, outputPos, nH, tmp]);
 
   // Simulate the whole run instantly.
   useEffect(() => {
@@ -150,25 +132,14 @@ export function SpikingPlayback(props: Props) {
     if (hMesh) {
       for (let i = 0; i < hiddenPos.length; i++) {
         if (lesioned.has(i)) tmp.c.copy(LESION_GREY);
-        else tmp.c.copy(tmp.base).lerp(FLASH, tmp.hidden[i]!);
+        else tmp.c.copy(NEURON_IDLE).lerp(NEURON_FLASH, tmp.hidden[i]!);
         hMesh.setColorAt(i, tmp.c);
       }
       if (hMesh.instanceColor) hMesh.instanceColor.needsUpdate = true;
     }
-    const glow = glowRef.current;
-    if (glow) {
-      for (let i = 0; i < nH; i++) {
-        if (lesioned.has(i)) glow.setColorAt(i, tmp.black);
-        else glow.setColorAt(i, tmp.c.copy(tmp.glowBase).lerp(tmp.glowFlash, tmp.hidden[i]!));
-      }
-      for (let o = 0; o < outputPos.length; o++) {
-        glow.setColorAt(nH + o, tmp.c.copy(tmp.glowBase).lerp(tmp.glowFlash, tmp.output[o]!));
-      }
-      if (glow.instanceColor) glow.instanceColor.needsUpdate = true;
-    }
     if (oMesh) {
       for (let i = 0; i < outputPos.length; i++) {
-        tmp.c.copy(tmp.base).lerp(FLASH, tmp.output[i]!);
+        tmp.c.copy(NEURON_IDLE).lerp(NEURON_FLASH, tmp.output[i]!);
         oMesh.setColorAt(i, tmp.c);
       }
       if (oMesh.instanceColor) oMesh.instanceColor.needsUpdate = true;
@@ -188,7 +159,10 @@ export function SpikingPlayback(props: Props) {
       if (k < 0 || k > 1) continue;
       for (const h of res.hiddenSpikes[t]!) {
         const a = hiddenPos[h]!;
-        for (let o = 0; o < outputPos.length && n < MAX_DOTS; o++) place(a, outputPos[o]!, k, seedOut(h, o));
+        for (const o of hiddenOut[h] ?? []) {
+          if (n >= MAX_DOTS) break;
+          place(a, outputPos[o]!, k, seedOut(h, o));
+        }
       }
       for (const i of res.inputSpikes[t]!) {
         const targets = inputOut[i];
@@ -216,15 +190,8 @@ export function SpikingPlayback(props: Props) {
         tmp.sv.set(sc, sc, sc);
         tmp.m.compose(outputPos[o]!, neuronQuat(nH + o, tmp.q), tmp.sv);
         oMesh.setMatrixAt(o, tmp.m);
-        if (glow) {
-          const gs = sc * OUTPUT_RADIUS * 1.9;
-          tmp.sv.set(gs, gs, gs);
-          tmp.q.identity();
-          glow.setMatrixAt(nH + o, tmp.m.compose(outputPos[o]!, tmp.q, tmp.sv));
-        }
       }
       oMesh.instanceMatrix.needsUpdate = true;
-      if (glow) glow.instanceMatrix.needsUpdate = true;
     }
     for (let o = 0; o < outputPos.length; o++) {
       const bar = barRefs.current[o];
@@ -253,17 +220,6 @@ export function SpikingPlayback(props: Props) {
       <instancedMesh ref={dotsRef} args={[undefined, undefined, MAX_DOTS]} frustumCulled={false} renderOrder={2}>
         <sphereGeometry args={[0.007, 6, 4]} />
         <meshBasicMaterial color={FLASH} toneMapped={false} transparent opacity={0.9} depthWrite={false} />
-      </instancedMesh>
-
-      <instancedMesh
-        ref={glowRef}
-        args={[undefined, undefined, nH + outputPos.length]}
-        frustumCulled={false}
-        renderOrder={2}
-        raycast={() => null}
-      >
-        <sphereGeometry args={[1, 8, 6]} />
-        <meshBasicMaterial transparent blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
       </instancedMesh>
 
       {result &&
