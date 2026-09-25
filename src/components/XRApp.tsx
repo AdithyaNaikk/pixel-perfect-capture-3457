@@ -1,3 +1,4 @@
+import { resumeAudio } from "@/lib/neuronAudio";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { XR, XROrigin, createXRStore } from "@react-three/xr";
@@ -45,6 +46,7 @@ export function XRApp() {
   const [vrError, setVrError] = useState<string | null>(null);
   const enterVR = async () => {
     setVrError(null);
+    resumeAudio();
     try {
       await store.enterVR();
     } catch (e) {
