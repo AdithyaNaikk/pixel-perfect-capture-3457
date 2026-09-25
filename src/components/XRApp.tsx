@@ -119,6 +119,11 @@ export function XRApp() {
         ) : vrSupported === false ? (
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
+          {vrError && (
+            <span className="pointer-events-auto max-w-xs text-right font-mono text-xs text-red-300">
+              Could not enter VR: {vrError}
+            </span>
+          )}
           <LesionControls />
         </div>
       </div>
