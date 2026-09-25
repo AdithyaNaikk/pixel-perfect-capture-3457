@@ -41,7 +41,7 @@ export function Scene({ weights }: { weights: Weights }) {
         <Text
           key={i}
           position={[0, 1.5 + ((OUTPUT_COUNT - 1) / 2 - i) * OUTPUT_SPACING, -2.5]}
-          fontSize={0.055}
+          fontSize={0.11}
           color="#e6ecf5"
           anchorX="center"
           anchorY="middle"
