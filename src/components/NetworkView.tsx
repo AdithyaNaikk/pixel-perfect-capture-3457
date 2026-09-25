@@ -565,6 +565,8 @@ export function NetworkView({
         <meshBasicMaterial color="#ff2a3a" transparent opacity={0.85} depthWrite={false} toneMapped={false} />
       </mesh>
 
+      {side === "ai" && <SelectableOutline positions={hiddenPos} />}
+
       {side === "ai" && aiResult && winnerPosition && (
         <>
           <group ref={winnerRef} visible={false}>
