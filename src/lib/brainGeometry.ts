@@ -134,7 +134,46 @@ export function curvePoint(a: THREE.Vector3, c: THREE.Vector3, b: THREE.Vector3,
   );
 }
 
-export const CURVE_SEGMENTS = 4;
+export const CURVE_SEGMENTS = 6;
 /** Seeds shared by line drawing and travelling dots. */
 export const seedIn = (i: number, h: number) => 100000 + i * 64 + h;
 export const seedOut = (h: number, o: number) => h * 10 + o + 1;
+
+// ---------- Eye (Brain input layer) ----------
+export const EYE_RADIUS = 0.75;
+export const EYE_Y = 0.55 + (27 * 0.055) / 2;
+export const EYE_Z = 0;
+export const RETINA_SPACING = 0.036;
+const RETINA_RADIUS = 0.7;
+export const NERVE_START_Z = EYE_Z - EYE_RADIUS + 0.02;
+export const NERVE_END_Z = EYE_Z - 1.45;
+
+/** 784 receptors on a curved retina at the back of the eye, upright, not mirrored from +Z. */
+export function eyeRetinaPositions(cx: number): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  const half = 27 / 2;
+  for (let row = 0; row < 28; row++) {
+    for (let col = 0; col < 28; col++) {
+      const x = (col - half) * RETINA_SPACING;
+      const y = (half - row) * RETINA_SPACING;
+      const z = EYE_Z - Math.sqrt(Math.max(0, RETINA_RADIUS * RETINA_RADIUS - x * x - y * y));
+      out.push(new THREE.Vector3(cx + x, EYE_Y + y, z));
+    }
+  }
+  return out;
+}
+
+const _n1 = new THREE.Vector3();
+const _n2 = new THREE.Vector3();
+/** Receptor -> optic nerve -> hidden neuron: cubic Bezier through the nerve. */
+export function nervePoint(a: THREE.Vector3, b: THREE.Vector3, cx: number, t: number, out: THREE.Vector3) {
+  _n1.set(cx, EYE_Y, NERVE_START_Z - 0.1);
+  _n2.set(cx, EYE_Y, NERVE_END_Z);
+  const u = 1 - t;
+  const w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+  return out.set(
+    w0 * a.x + w1 * _n1.x + w2 * _n2.x + w3 * b.x,
+    w0 * a.y + w1 * _n1.y + w2 * _n2.y + w3 * b.y,
+    w0 * a.z + w1 * _n1.z + w2 * _n2.z + w3 * b.z,
+  );
+}
