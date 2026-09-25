@@ -11,3 +11,5 @@
 
 - App-served 3D models use Lovable Assets pointer files under `src/assets`; this keeps large GLBs out of source control while preserving stable URLs.
 - The Brain visualization is one procedural output neuron driven from full recorded SNN telemetry; the hidden 64×10 network remains simulated but is not rendered.
+- Brain-side effects align to the unchanged neuron.glb via hand-tuned guide curves in `src/lib/brainGuides.ts` (toggle "Debug guides"); the GLB is never replaced by generated geometry.
+- VR right hand is arbitrated through `src/lib/rightHand.ts` so drawing (trigger) and teleport (grip) never run at once.
