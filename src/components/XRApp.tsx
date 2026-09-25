@@ -37,7 +37,7 @@ export function XRApp() {
       <Canvas
         dpr={[1, 1.5]}
         shadows={false}
-        camera={{ position: [0, 1.6, 0.5], fov: 65, near: 0.05, far: 100 }}
+        camera={{ position: [0, 1.6, 1.8], fov: 65, near: 0.05, far: 100 }}
       >
         <XR store={store}>
           <color attach="background" args={["#05060a"]} />

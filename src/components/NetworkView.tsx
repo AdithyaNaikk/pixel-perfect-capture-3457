@@ -109,7 +109,7 @@ export function NetworkView({
   return (
     <group position={position} rotation={rotation} name={`network-${side}`}>
       <lineSegments geometry={lineGeometry} frustumCulled={false}>
-        <lineBasicMaterial vertexColors transparent opacity={0.15} depthWrite={false} />
+        <lineBasicMaterial vertexColors transparent opacity={0.08} depthWrite={false} />
       </lineSegments>
 
       <instancedMesh

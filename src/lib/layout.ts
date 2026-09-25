@@ -14,7 +14,7 @@ export const OUTPUT_RADIUS = 0.035;
 export const OUTPUT_SPACING = 0.085;
 
 /** Layers are spaced along the network's local +Z (front to back). */
-export const LAYER_GAP = 0.6;
+export const LAYER_GAP = 0.9;
 export const INPUT_Z = LAYER_GAP;
 export const HIDDEN_Z = 0;
 export const OUTPUT_Z = -LAYER_GAP;
