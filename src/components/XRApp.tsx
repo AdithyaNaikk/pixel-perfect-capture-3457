@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
-import { GuidanceLine } from "./Guidance";
 import { VRDrawing } from "./VRDrawing";
 import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
@@ -134,6 +133,7 @@ function LesionControls() {
   const toggle = useAppStore((s) => s.toggleLesionMode);
   const random = useAppStore((s) => s.lesionRandom);
   const heal = useAppStore((s) => s.healAll);
+  const count = useAppStore((s) => s.lesioned.size);
   const btn = "rounded-full border border-red-400/40 bg-red-400/10 px-3 py-1 text-red-200 hover:bg-red-400/20";
   return (
     <div className="pointer-events-auto flex flex-col items-end gap-1.5 font-mono text-xs">
