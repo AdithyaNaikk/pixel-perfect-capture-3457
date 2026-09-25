@@ -2,6 +2,7 @@ import { Grid, Text } from "@react-three/drei";
 
 import { OUTPUT_COUNT, OUTPUT_SPACING } from "@/lib/layout";
 
+import { Guidance3D } from "./Guidance";
 import { NetworkView } from "./NetworkView";
 import type { Weights } from "@/lib/weights";
 

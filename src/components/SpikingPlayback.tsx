@@ -179,7 +179,10 @@ export function SpikingPlayback(props: Props) {
       lastStep.current = cur;
       setStatus({ step: cur + 1, leader, done: p >= SNN_T });
     }
-    if (finished) clock.current = null;
+    if (finished) {
+      clock.current = null;
+      useAppStore.getState().setSpiking({ done: true, prediction: res.prediction });
+    }
   });
 
   return (
