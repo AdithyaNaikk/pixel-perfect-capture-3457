@@ -3,12 +3,11 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-import { BRAIN_MODEL_POS, NEURON_URL, NeuronPlaceholder, SafeModel } from "./Models";
+import { BRAIN_MODEL_POS, BRAIN_URL, NEURON_URL, NeuronPlaceholder, SafeModel } from "./Models";
 import {
   AXON_GUIDE,
   DENDRITE_GUIDES,
   HILLOCK_POINT,
-  IPS_PATCHES,
   NEURON_SCALE,
   NEURON_SIZE,
   SOMA_POINT,
@@ -33,6 +32,7 @@ const COOL = new THREE.Color("#5aa8ff");
 const FIRE = new THREE.Color("#fff4b0");
 const SOMA_GLOW = new THREE.Color("#ff7fd4");
 const LESION = new THREE.Color("#3a3a40");
+const IPS_COLOR = new THREE.Color("#ffe066");
 const BAR_IDLE = new THREE.Color("#76516f");
 const SCOPE_W = 1.1;
 const SCOPE_H = 0.32;
@@ -45,7 +45,7 @@ interface Status {
 interface Runs {
   damaged: SnnResult;
   healthy: SnnResult;
-  /** Output neuron shown: the healthy network's answer. */
+  /** Output neuron shown: the winning output neuron of this (possibly damaged) run. */
   shown: number;
   lesioned: Set<number>;
 }
@@ -87,7 +87,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
       axon: glowMat(tex, FIRE, 1),
       pulses: new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
       particles: glowMat(tex, FIRE, 1),
-      ips: new THREE.MeshBasicMaterial({ color: WARM, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      ips: new THREE.MeshBasicMaterial({ color: IPS_COLOR, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
     }),
     [tex],
   );
@@ -121,37 +121,10 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     const lesioned = new Set(useAppStore.getState().lesioned);
     const damaged = simulate(image, weights, lesioned);
     const healthy = lesioned.size > 0 ? simulate(image, weights, new Set()) : damaged;
-    setRuns({ damaged, healthy, shown: healthy.noAnswer ? damaged.prediction : healthy.prediction, lesioned });
+    setRuns({ damaged, healthy, shown: damaged.prediction, lesioned });
     useAppStore.getState().setSpiking({ done: false, prediction: null });
+    useAppStore.getState().setBrainCounts(null);
   }, [runId, weights]);
-
-  // Oscilloscope geometry (static per run; revealed with drawRange).
-  const scope = useMemo(() => {
-    const line = new THREE.BufferGeometry();
-    const spikes = new THREE.BufferGeometry();
-    const threshold = weights.snn?.threshold ?? 1;
-    const pos = new Float32Array(SNN_T * 3);
-    const sp: number[] = [];
-    const spikeStep: number[] = [];
-    const y = (v: number) => (Math.max(-0.3, Math.min(1.2, v / threshold)) / 1.2) * SCOPE_H;
-    if (runs) {
-      for (let t = 0; t < SNN_T; t++) {
-        const x = (t / (SNN_T - 1)) * SCOPE_W - SCOPE_W / 2;
-        pos[t * 3] = x;
-        pos[t * 3 + 1] = y(runs.damaged.outputPotentials[t]?.[runs.shown] ?? 0);
-        if (runs.damaged.outputSpikes[t]?.includes(runs.shown)) {
-          sp.push(x, 0, 0.002, x, SCOPE_H * 1.05, 0.002);
-          spikeStep.push(t);
-        }
-      }
-    }
-    line.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    line.setDrawRange(0, 0);
-    spikes.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
-    spikes.setDrawRange(0, 0);
-    return { line, spikes, spikeStep, thresholdY: y(threshold) };
-  }, [runs, weights]);
-  useEffect(() => () => { scope.line.dispose(); scope.spikes.dispose(); }, [scope]);
 
   useEffect(() => {
     if (!runs) return;
@@ -264,11 +237,6 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     pulses.instanceMatrix.needsUpdate = true;
     if (pulses.instanceColor) pulses.instanceColor.needsUpdate = true;
 
-    // Oscilloscope.
-    scope.line.setDrawRange(0, done ? SNN_T : cur + 1);
-    let sc = 0;
-    while (sc < scope.spikeStep.length && scope.spikeStep[sc]! <= cur) sc++;
-    scope.spikes.setDrawRange(0, sc * 2);
 
     // Bars: live counts; winner highlighted only once the brain has decided (end of playback).
     const counts = res.counts[cur];
@@ -284,7 +252,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     }
 
     // IPS patches flash with each spike and stay softly lit once revealed.
-    mats.ips.opacity = (debug ? 0.35 : 0) + Math.max(done ? 0.35 + Math.sin(time.elapsedTime * 2) * 0.05 : 0.05, flash * 0.9);
+    mats.ips.opacity = Math.min(1, (debug ? 0.3 : 0) + Math.max(done ? 0.4 + Math.sin(time.elapsedTime * 2) * 0.05 : 0.02, flash * 0.95));
 
     if (cur !== lastStep.current || (done && !status?.done)) {
       lastStep.current = cur;
@@ -293,6 +261,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
     if (clock.current !== null && p >= END) {
       clock.current = null;
       useAppStore.getState().setSpiking({ done: true, prediction: res.noAnswer ? null : res.prediction });
+      useAppStore.getState().setBrainCounts(Array.from(res.counts[SNN_T - 1] ?? []));
     }
   });
 
@@ -338,37 +307,11 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
         </group>
       </group>
 
-      {/* IPS glow patches on the faint brain figure. */}
+      {/* Faint brain model; the IPS strips are its children so they follow its transform. */}
       <group position={BRAIN_MODEL_POS}>
-        {IPS_PATCHES.map((patch, i) => (
-          <mesh key={i} position={patch.position} rotation={patch.rotation} scale={patch.scale} material={mats.ips} raycast={() => null}>
-            <sphereGeometry args={[1, 16, 10]} />
-          </mesh>
-        ))}
-        {debug && IPS_PATCHES.map((patch, i) => (
-          <mesh key={`w${i}`} position={patch.position} rotation={patch.rotation} scale={patch.scale} raycast={() => null}>
-            <sphereGeometry args={[1, 10, 6]} />
-            <meshBasicMaterial color="#00ff88" wireframe />
-          </mesh>
-        ))}
-      </group>
-
-      {/* Oscilloscope under the neuron. */}
-      <group position={[centerX - 0.15, 0.62, -2.15]}>
-        <mesh position={[0, SCOPE_H / 2, -0.005]}>
-          <planeGeometry args={[SCOPE_W + 0.08, SCOPE_H + 0.12]} />
-          <meshBasicMaterial color="#070a12" transparent opacity={0.85} />
-        </mesh>
-        {/* @ts-expect-error three line element */}
-        <line ref={scopeLine} geometry={scope.line} frustumCulled={false}>
-          <lineBasicMaterial color="#7dffb0" toneMapped={false} />
-        </line>
-        <lineSegments ref={scopeSpikes} geometry={scope.spikes} frustumCulled={false}>
-          <lineBasicMaterial color={FIRE} toneMapped={false} />
-        </lineSegments>
-        <DashedLine y={scope.thresholdY} />
-        <Text position={[-SCOPE_W / 2, SCOPE_H + 0.035, 0]} fontSize={0.035} color="#9fd8b8" anchorX="left" anchorY="middle">membrane potential</Text>
-        <Text position={[SCOPE_W / 2, scope.thresholdY + 0.025, 0]} fontSize={0.03} color="#c9a0a6" anchorX="right" anchorY="middle">threshold</Text>
+        <SafeModel url={BRAIN_URL} size={1.15} opacity={0.35} desaturate>
+          {(dims) => <IpsStrips dims={dims} material={mats.ips} debug={debug} />}
+        </SafeModel>
       </group>
 
       {/* Output spike counts for all 10 output neurons. */}
@@ -409,21 +352,6 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
         Output neuron of the brain-style network. The network behind it is running, just hidden.
       </Text>
     </group>
-  );
-}
-
-function DashedLine({ y }: { y: number }) {
-  const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-SCOPE_W / 2, y, 0.001), new THREE.Vector3(SCOPE_W / 2, y, 0.001)]);
-    return g;
-  }, [y]);
-  const ref = useRef<THREE.Line>(null);
-  useEffect(() => { ref.current?.computeLineDistances(); }, [geometry]);
-  return (
-    // @ts-expect-error three line element
-    <line ref={ref} geometry={geometry}>
-      <lineDashedMaterial color="#c9a0a6" dashSize={0.03} gapSize={0.02} />
-    </line>
   );
 }
 
@@ -468,5 +396,39 @@ function HeadAndThought({ answer, position }: { answer: string; position: [numbe
         <Text position={[0, 0, 0.255]} fontSize={0.18} color="#3a2440" anchorX="center" anchorY="middle">{answer}</Text>
       </group>
     </group>
+  );
+}
+
+/**
+ * Intraparietal sulcus: a thin curved strip on each hemisphere along the upper back of the brain,
+ * running front (+Z) to back (−Z), hugging the surface of the fitted model's bounding ellipsoid.
+ */
+function IpsStrips({ dims, material, debug }: { dims: THREE.Vector3; material: THREE.Material; debug: boolean }) {
+  const geos = useMemo(() => {
+    const rx = dims.x / 2, ry = dims.y / 2, rz = dims.z / 2;
+    return [-1, 1].map((side) => {
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 12; i++) {
+        // From just behind the top centre toward the upper back.
+        const a = THREE.MathUtils.lerp(-0.05, 0.95, i / 12);
+        const xN = side * 0.38;
+        const yz = Math.sqrt(Math.max(0, 1 - xN * xN)) * 1.01;
+        pts.push(new THREE.Vector3(xN * rx, Math.cos(a) * yz * ry, -Math.sin(a) * yz * rz));
+      }
+      return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, Math.min(rx, ry) * 0.035, 5, false);
+    });
+  }, [dims]);
+  useEffect(() => () => geos.forEach((g) => g.dispose()), [geos]);
+  return (
+    <>
+      {geos.map((g, i) => (
+        <mesh key={i} geometry={g} material={material} renderOrder={5} raycast={() => null} />
+      ))}
+      {debug && geos.map((g, i) => (
+        <mesh key={`d${i}`} geometry={g} raycast={() => null}>
+          <meshBasicMaterial color="#00ff88" wireframe />
+        </mesh>
+      ))}
+    </>
   );
 }

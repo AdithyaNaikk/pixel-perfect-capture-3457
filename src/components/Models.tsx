@@ -60,7 +60,7 @@ function useExists(url: string) {
 }
 
 /** Clones the GLTF scene, centres it and scales its largest side to `size`. */
-function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = false, children }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean; opacity?: number; desaturate?: boolean; children?: ReactNode }) {
+function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = false, children }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean; opacity?: number; desaturate?: boolean; children?: ReactNode | ((dims: THREE.Vector3) => ReactNode) }) {
   const { scene } = useGLTF(url);
   const obj = useMemo(() => {
     const clone = scene.clone(true);
@@ -94,12 +94,12 @@ function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = 
     clone.position.sub(centre);
     g.add(clone);
     g.scale.setScalar(s);
-    return { g, s };
+    return { g, s, dims: dims.clone().multiplyScalar(s) };
   }, [scene, size, faceZ, opacity, desaturate]);
   // Children live inside the model's transform (in fitted metres, centred on the model).
   return (
     <primitive object={obj.g} rotation={rotation}>
-      {children && <group scale={1 / obj.s}>{children}</group>}
+      {children && <group scale={1 / obj.s}>{typeof children === "function" ? children(obj.dims) : children}</group>}
     </primitive>
   );
 }
@@ -115,7 +115,7 @@ export function SafeModel({
   opacity?: number;
   desaturate?: boolean;
   fallback?: ReactNode;
-  children?: ReactNode;
+  children?: ReactNode | ((dims: THREE.Vector3) => ReactNode);
 }) {
   const ok = useExists(props.url);
   if (!ok) return <>{fallback}</>;
