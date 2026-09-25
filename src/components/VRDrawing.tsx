@@ -1,14 +1,14 @@
 import { Text } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useXR, useXRInputSourceState } from "@react-three/xr";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import { preprocessStrokes, type Point } from "@/lib/preprocess";
 import { useAppStore } from "@/lib/store";
 
-const FRAME_POS = new THREE.Vector3(0, 1.3, -0.7);
-const FRAME_SIZE = 0.5;
+const PANEL_POS = new THREE.Vector3(0, 1.2, -0.8);
+const PANEL_SIZE = 0.6;
 const MAX_SEGMENTS = 20000;
 const GLOW = "#ffe2b8";
 
@@ -16,7 +16,7 @@ function pressed(state: { state?: string } | undefined) {
   return state?.state === "pressed";
 }
 
-/** Air drawing in VR with the right controller. Renders only in immersive VR. */
+/** Ray-based drawing panel in VR. Renders only in immersive VR. */
 export function VRDrawing() {
   const mode = useXR((s) => s.mode);
   if (mode !== "immersive-vr") return null;
@@ -26,22 +26,16 @@ export function VRDrawing() {
 function VRDrawingInner() {
   const controller = useXRInputSourceState("controller", "right");
   const left = useXRInputSourceState("controller", "left");
-  const prevX = useRef(false);
   const run = useAppStore((s) => s.run);
-  const strokes3d = useRef<THREE.Vector3[][]>([]);
-  const current = useRef<THREE.Vector3[] | null>(null);
-  const prev = useRef({ trigger: false, a: false, b: false });
+  const prevX = useRef(false);
+  const prev = useRef({ a: false, b: false });
+  /** Strokes in panel-local 2D coordinates (metres, y up). */
+  const strokes = useRef<Point[][]>([]);
+  const current = useRef<Point[] | null>(null);
+  /** Latest ray hit on the panel in local coordinates, or null when the ray is off the panel. */
+  const hit = useRef<THREE.Vector3 | null>(null);
+  const hitVec = useMemo(() => new THREE.Vector3(), []);
   const segCount = useRef(0);
-  const tmp = useMemo(() => new THREE.Vector3(), []);
-
-  // Frame faces the user (+Z); local axes are world X / Y.
-  const frame = useMemo(() => {
-    const quat = new THREE.Quaternion();
-    return {
-      xAxis: new THREE.Vector3(1, 0, 0).applyQuaternion(quat),
-      yAxis: new THREE.Vector3(0, 1, 0).applyQuaternion(quat),
-    };
-  }, []);
 
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -83,23 +77,27 @@ function VRDrawingInner() {
   }, [texture]);
 
   const clear = () => {
-    strokes3d.current = [];
+    strokes.current = [];
     current.current = null;
     segCount.current = 0;
     geometry.setDrawRange(0, 0);
   };
 
-  const runDrawing = () => {
-    const strokes: Point[][] = strokes3d.current
+  const submit = () => {
+    const pts: Point[][] = strokes.current
       .filter((s) => s.length > 0)
-      .map((s) =>
-        s.map((p) => {
-          tmp.copy(p).sub(FRAME_POS);
-          // mm units; flip Y so the result is screen-like (y down).
-          return { x: tmp.dot(frame.xAxis) * 1000, y: -tmp.dot(frame.yAxis) * 1000 };
-        }),
-      );
-    run(preprocessStrokes(strokes));
+      // mm units; flip Y so the result is screen-like (y down) for preprocessStrokes.
+      .map((s) => s.map((p) => ({ x: p.x * 1000, y: -p.y * 1000 })));
+    if (pts.length === 0) return;
+    run(preprocessStrokes(pts));
+  };
+
+  const onMove = (e: ThreeEvent<PointerEvent>) => {
+    hitVec.copy(e.point).sub(PANEL_POS); // panel faces +Z, unrotated: local X/Y = world X/Y
+    hit.current = hitVec;
+  };
+  const onLeave = () => {
+    hit.current = null;
   };
 
   useFrame(() => {
@@ -107,41 +105,43 @@ function VRDrawingInner() {
     if (x && !prevX.current) useAppStore.getState().toggleLesionMode();
     prevX.current = x;
     if (!controller) return;
-    // In lesion mode the trigger selects neurons via the controller ray instead of drawing.
     const trigger =
       !useAppStore.getState().lesionMode && pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
     const b = pressed(controller.gamepad["b-button"]);
-    const was = prev.current;
+    const h = hit.current;
 
-    if (trigger && controller.object) {
-      const pos = controller.object.getWorldPosition(new THREE.Vector3());
-      if (!was.trigger || !current.current) {
+    if (trigger && h) {
+      if (!current.current) {
         current.current = [];
-        strokes3d.current.push(current.current);
+        strokes.current.push(current.current);
       }
       const stroke = current.current;
       const last = stroke[stroke.length - 1];
-      if (last && segCount.current < MAX_SEGMENTS) {
-        const arr = geometry.attributes["position"]!.array as Float32Array;
-        const o = segCount.current * 6;
-        arr[o] = last.x; arr[o + 1] = last.y; arr[o + 2] = last.z;
-        arr[o + 3] = pos.x; arr[o + 4] = pos.y; arr[o + 5] = pos.z;
-        segCount.current++;
-        geometry.attributes["position"]!.needsUpdate = true;
-        geometry.setDrawRange(0, segCount.current * 2);
+      const px = h.x;
+      const py = h.y;
+      if (!last || Math.abs(last.x - px) + Math.abs(last.y - py) > 0.001) {
+        if (last && segCount.current < MAX_SEGMENTS) {
+          const arr = geometry.attributes["position"]!.array as Float32Array;
+          const o = segCount.current * 6;
+          arr[o] = last.x; arr[o + 1] = last.y; arr[o + 2] = 0.003;
+          arr[o + 3] = px; arr[o + 4] = py; arr[o + 5] = 0.003;
+          segCount.current++;
+          geometry.attributes["position"]!.needsUpdate = true;
+          geometry.setDrawRange(0, segCount.current * 2);
+        }
+        stroke.push({ x: px, y: py });
       }
-      stroke.push(pos);
-    } else if (was.trigger) {
+    } else {
       current.current = null;
     }
 
-    if (a && !was.a) runDrawing();
-    if (b && !was.b) clear();
-    prev.current = { trigger, a, b };
+    if (a && !prev.current.a) submit();
+    if (b && !prev.current.b) clear();
+    prev.current = { a, b };
   });
 
-  const h = FRAME_SIZE / 2;
+  const h = PANEL_SIZE / 2;
   const border = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute(
@@ -152,35 +152,57 @@ function VRDrawingInner() {
   }, [h]);
 
   return (
-    <>
-      <group position={FRAME_POS}>
-        <mesh renderOrder={0}>
-          <planeGeometry args={[FRAME_SIZE, FRAME_SIZE]} />
-          <meshBasicMaterial color="#1a2433" transparent opacity={0.25} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-        <line>
-          <primitive object={border} attach="geometry" />
-          <lineBasicMaterial color={GLOW} toneMapped={false} />
-        </line>
-        <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
-          Draw here
-        </Text>
-        <Text position={[0, -h - 0.03, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
-          Trigger: draw · A: Run · B: Clear · X: lesion mode
-        </Text>
-        <group position={[h + 0.12, 0, 0]}>
-          <mesh>
-            <planeGeometry args={[0.16, 0.16]} />
-            <meshBasicMaterial map={texture} toneMapped={false} />
-          </mesh>
-          <Text position={[0, -0.1, 0]} fontSize={0.016} color="#9fb0c4" anchorX="center" anchorY="middle">
-            28×28
-          </Text>
-        </group>
-      </group>
-      <lineSegments geometry={geometry} frustumCulled={false}>
+    <group position={PANEL_POS}>
+      <mesh renderOrder={0} onPointerMove={onMove} onPointerOver={onMove} onPointerLeave={onLeave} onPointerOut={onLeave}>
+        <planeGeometry args={[PANEL_SIZE, PANEL_SIZE]} />
+        <meshBasicMaterial color="#0b0f16" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <line>
+        <primitive object={border} attach="geometry" />
+        <lineBasicMaterial color="#ffffff" toneMapped={false} />
+      </line>
+      <lineSegments geometry={geometry} frustumCulled={false} raycast={() => null}>
         <lineBasicMaterial color={GLOW} toneMapped={false} />
       </lineSegments>
-    </>
+      <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
+        Draw here
+      </Text>
+      <VRButton label="Clear" position={[-0.12, -h - 0.07, 0]} onPress={clear} />
+      <VRButton label="Submit" position={[0.12, -h - 0.07, 0]} onPress={submit} />
+      <Text position={[0, -h - 0.14, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
+        Trigger: draw · A: Submit · B: Clear · X: lesion mode
+      </Text>
+      <group position={[h + 0.12, 0, 0]}>
+        <mesh>
+          <planeGeometry args={[0.16, 0.16]} />
+          <meshBasicMaterial map={texture} toneMapped={false} />
+        </mesh>
+        <Text position={[0, -0.1, 0]} fontSize={0.016} color="#9fb0c4" anchorX="center" anchorY="middle">
+          28×28
+        </Text>
+      </group>
+    </group>
+  );
+}
+
+function VRButton({ label, position, onPress }: { label: string; position: [number, number, number]; onPress: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <group position={position}>
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation();
+          onPress();
+        }}
+        onPointerOver={() => setHover(true)}
+        onPointerOut={() => setHover(false)}
+      >
+        <planeGeometry args={[0.18, 0.07]} />
+        <meshBasicMaterial color={hover ? "#2c3f57" : "#162232"} side={THREE.DoubleSide} />
+      </mesh>
+      <Text position={[0, 0, 0.002]} fontSize={0.03} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
+        {label}
+      </Text>
+    </group>
   );
 }

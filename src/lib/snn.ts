@@ -2,8 +2,6 @@ import { forward } from "./ann";
 import { HIDDEN_SIZE, INPUT_SIZE, OUTPUT_SIZE, type Weights } from "./weights";
 
 export const SNN_T = 80;
-const LEAK = 0.98;
-const THRESHOLD = 1;
 
 export interface SnnResult {
   /** Per timestep: indices of neurons that spiked. */
@@ -42,17 +40,17 @@ function argmaxCounts(counts: Int32Array, v: Float32Array): number {
 }
 
 export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number>): SnnResult {
-  let lambda1 = weights.lambda1;
-  let lambda2 = weights.lambda2;
-  if (weights.isPlaceholder) {
-    const ann = forward(x, weights, lesioned);
-    lambda1 = Math.max(...ann.hidden);
-    lambda2 = Math.max(...ann.output);
-  }
-  if (!(lambda1 > 0)) lambda1 = 1;
-  if (!(lambda2 > 0)) lambda2 = 1;
-  const s1 = 1 / lambda1;
-  const s2 = lambda1 / lambda2;
+  const { input_rate: RATE, leak: LEAK, threshold: THRESHOLD } = weights.snn;
+  // Per-layer normalisation: max ANN activation of each layer on THIS input -> 1.
+  const ann = forward(x, weights, lesioned);
+  let maxH = 0;
+  for (const v of ann.hidden) maxH = Math.max(maxH, v);
+  let maxO = 0;
+  for (const v of ann.output) maxO = Math.max(maxO, v);
+  if (!(maxH > 0)) maxH = 1;
+  if (!(maxO > 0)) maxO = 1;
+  const s1 = 1 / maxH;
+  const s2 = maxH / maxO;
 
   const rand = mulberry32(42);
   const vH = new Float32Array(HIDDEN_SIZE);
@@ -71,7 +69,7 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
 
   for (let t = 0; t < SNN_T; t++) {
     const inS: number[] = [];
-    for (let i = 0; i < INPUT_SIZE; i++) if (rand() < x[i]!) inS.push(i);
+    for (let i = 0; i < INPUT_SIZE; i++) if (rand() < x[i]! * RATE) inS.push(i);
 
     const hS: number[] = [];
     for (let h = 0; h < HIDDEN_SIZE; h++) {

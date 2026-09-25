@@ -26,6 +26,8 @@ interface AppState {
   lesioned: Set<number>;
   /** True when the current run was triggered by a lesion change. */
   lesionRerun: boolean;
+  hoverHidden: number | null;
+  setHoverHidden: (h: number | null) => void;
   toggleLesionMode: () => void;
   toggleLesion: (h: number) => void;
   lesionRandom: (n: number) => void;
@@ -63,6 +65,8 @@ export const useAppStore = create<AppState>((set, get) => {
   lesionMode: false,
   lesioned: new Set<number>(),
   lesionRerun: false,
+  hoverHidden: null,
+  setHoverHidden: (h) => set((s) => (s.hoverHidden === h ? s : { hoverHidden: h })),
   toggleLesionMode: () => set((s) => ({ lesionMode: !s.lesionMode })),
   toggleLesion: (h) => {
     const next = new Set(get().lesioned);

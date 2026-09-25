@@ -1,4 +1,5 @@
 import { Text } from "@react-three/drei";
+import { useXR } from "@react-three/xr";
 
 import { useAppStore } from "@/lib/store";
 
@@ -42,6 +43,12 @@ export function useLesionLine(): string | null {
 
 /** Floating 3D guidance panel at the top centre of the scene. */
 export function Guidance3D() {
+  const mode = useXR((s) => s.mode);
+  if (mode !== "immersive-vr") return null;
+  return <Guidance3DInner />;
+}
+
+function Guidance3DInner() {
   const text = useGuidanceText();
   const lesion = useLesionLine();
   return (

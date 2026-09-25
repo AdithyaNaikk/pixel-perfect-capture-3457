@@ -8,6 +8,7 @@ import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
 import { GuidanceLine, HINT_DESKTOP, HINT_VR } from "./Guidance";
 import { VRDrawing } from "./VRDrawing";
+import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
 
@@ -85,6 +86,7 @@ export function XRApp() {
           <CameraFit panelExpanded={drawingExpanded} />
           {weights && <Scene weights={weights} />}
           <VRDrawing />
+          <ControllerPen />
           <OrbitControls target={FOCUS} enablePan={false} makeDefault />
         </XR>
       </Canvas>
@@ -93,6 +95,16 @@ export function XRApp() {
         <div className="font-mono text-sm tracking-widest text-slate-300">
           SAME WEIGHTS, TWO BRAINS
           {!weights && <span className="ml-2 opacity-60">loading weights…</span>}
+          {weights?.isPlaceholder && (
+            <div className="mt-1 text-xs tracking-normal text-amber-300">⚠ Using random placeholder weights</div>
+          )}
+          {weights && !weights.isPlaceholder && (
+            <div className="mt-1 text-xs tracking-normal text-emerald-300/80">
+              Trained weights loaded
+              {typeof weights.meta.ann_test_accuracy === "number" &&
+                ` · ANN test accuracy ${(weights.meta.ann_test_accuracy * 100).toFixed(1)}%`}
+            </div>
+          )}
         </div>
         {vrSupported === true ? (
           <button

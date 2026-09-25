@@ -74,6 +74,7 @@ export function NetworkView({
   const inputRef = useRef<THREE.InstancedMesh>(null);
   const hiddenRef = useRef<THREE.InstancedMesh>(null);
   const outputRef = useRef<THREE.InstancedMesh>(null);
+  const hoverRef = useRef<THREE.Mesh>(null);
   const activationStart = useRef<number | null>(null);
   const hiddenTarget = useRef<Float32Array | null>(null);
   const outputTarget = useRef<Float32Array | null>(null);
@@ -89,6 +90,19 @@ export function NetworkView({
   useInstanced(inputPos, color, inputRef);
   useInstanced(hiddenPos, color, hiddenRef);
   useInstanced(outputPos, color, outputRef);
+
+  // Lesion hover: red highlight on the hovered hidden neuron (shared by both networks).
+  useEffect(() => {
+    const apply = (st: { lesionMode: boolean; hoverHidden: number | null }) => {
+      const m = hoverRef.current;
+      if (!m) return;
+      const p = st.hoverHidden !== null ? hiddenPos[st.hoverHidden] : undefined;
+      m.visible = st.lesionMode && !!p;
+      if (p) m.position.copy(p);
+    };
+    apply(useAppStore.getState());
+    return useAppStore.subscribe(apply);
+  }, [hiddenPos]);
 
   // Input cube brightness follows the preprocessed image (no React re-render).
   useEffect(() => {
@@ -117,7 +131,7 @@ export function NetworkView({
     const maxHidden = Math.max(0, ...result.hidden);
     const maxOutput = Math.max(0, ...result.output);
     hiddenTarget.current = result.hidden.map((value) => (maxHidden > 0 ? value / maxHidden : 0));
-    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? value / maxOutput : 0));
+    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? Math.max(0, value) / maxOutput : 0));
     activationStart.current = performance.now();
     setAiResult(result);
     useAppStore.getState().setAiAnswer(result.prediction);
@@ -324,6 +338,11 @@ export function NetworkView({
           e.stopPropagation();
           st.toggleLesion(e.instanceId);
         }}
+        onPointerMove={(e) => {
+          if (e.instanceId === undefined) return;
+          useAppStore.getState().setHoverHidden(e.instanceId);
+        }}
+        onPointerOut={() => useAppStore.getState().setHoverHidden(null)}
       >
         <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
         <meshBasicMaterial toneMapped={false} />
@@ -349,6 +368,11 @@ export function NetworkView({
         <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
+
+      <mesh ref={hoverRef} visible={false} renderOrder={4} raycast={() => null}>
+        <sphereGeometry args={[HIDDEN_RADIUS * 1.35, 12, 8]} />
+        <meshBasicMaterial color="#ff2a3a" transparent opacity={0.85} depthWrite={false} toneMapped={false} />
+      </mesh>
 
       {side === "ai" && aiResult && winnerPosition && (
         <>

@@ -35,7 +35,8 @@ export function forward(
     if (!row) continue;
     let sum = 0;
     for (let h = 0; h < HIDDEN_SIZE; h++) sum += (row[h] ?? 0) * (hidden[h] ?? 0);
-    const activation = Math.max(0, sum);
+    // Linear output layer (no ReLU).
+    const activation = sum;
     output[o] = activation;
     if (activation > best) {
       best = activation;
