@@ -237,6 +237,9 @@ export function SpikingPlayback(props: Props) {
               ? `decided at step ${result.decisionStep} · ${result.synapticEvents.toLocaleString("en-US")} calculations`
               : `step ${status.step}/${SNN_T}`}
           </Text>
+          <Text position={[panelX, ANSWER_SUB_Y - 0.13, LABEL_Z]} fontSize={0.045} color="#f3e2d7" anchorX="center" anchorY="middle">
+            Spikes: each neuron fires pulses over time.
+          </Text>
         </>
       )}
     </>
