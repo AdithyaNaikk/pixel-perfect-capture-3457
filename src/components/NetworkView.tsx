@@ -117,7 +117,7 @@ export function NetworkView({
     const maxHidden = Math.max(0, ...result.hidden);
     const maxOutput = Math.max(0, ...result.output);
     hiddenTarget.current = result.hidden.map((value) => (maxHidden > 0 ? value / maxHidden : 0));
-    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? value / maxOutput : 0));
+    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? Math.max(0, value) / maxOutput : 0));
     activationStart.current = performance.now();
     setAiResult(result);
     useAppStore.getState().setAiAnswer(result.prediction);

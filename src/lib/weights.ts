@@ -1,19 +1,44 @@
+export interface SnnSettings {
+  steps: number;
+  input_rate: number;
+  leak: number;
+  threshold: number;
+}
+
+export interface WeightsMeta {
+  architecture?: string;
+  ann_test_accuracy?: number;
+  snn_test_accuracy?: number;
+  snn_settings?: Partial<SnnSettings>;
+}
+
+/** Internal (transposed) weights used by the app. */
 export interface Weights {
-  /** [64][784] input -> hidden */
+  /** [64][784] hidden <- input */
   w1: number[][];
-  /** [10][64] hidden -> output */
+  /** [10][64] output <- hidden */
   w2: number[][];
-  lambda1: number;
-  lambda2: number;
+  meta: WeightsMeta;
+  snn: SnnSettings;
   /** True when these are random placeholder weights. */
   isPlaceholder?: boolean;
+}
+
+/** On-disk format of public/weights.json. */
+interface WeightsFile {
+  /** [784][64]: w1[i][j] = input i -> hidden j */
+  w1: number[][];
+  /** [64][10]: w2[j][k] = hidden j -> output k */
+  w2: number[][];
+  meta?: WeightsMeta;
 }
 
 export const INPUT_SIZE = 784;
 export const HIDDEN_SIZE = 64;
 export const OUTPUT_SIZE = 10;
 
-/** Box-Muller normal sample. */
+const DEFAULT_SNN: SnnSettings = { steps: 80, input_rate: 0.3, leak: 0.95, threshold: 1 };
+
 function randn(std: number): number {
   let u = 0;
   let v = 0;
@@ -23,34 +48,49 @@ function randn(std: number): number {
 }
 
 function matrix(rows: number, cols: number, std: number): number[][] {
-  return Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => randn(std)),
+  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => randn(std)));
+}
+
+function transpose(m: number[][]): number[][] {
+  const rows = m.length;
+  const cols = m[0]!.length;
+  return Array.from({ length: cols }, (_, c) => Array.from({ length: rows }, (_, r) => m[r]![c]!));
+}
+
+function isMatrix(m: unknown, rows: number, cols: number): m is number[][] {
+  return (
+    Array.isArray(m) &&
+    m.length === rows &&
+    m.every((r) => Array.isArray(r) && r.length === cols && r.every((v) => typeof v === "number" && Number.isFinite(v)))
   );
 }
 
-export function randomWeights(std = 0.05): Weights {
+function isValidFile(data: unknown): data is WeightsFile {
+  const d = data as WeightsFile | null;
+  return !!d && isMatrix(d.w1, INPUT_SIZE, HIDDEN_SIZE) && isMatrix(d.w2, HIDDEN_SIZE, OUTPUT_SIZE);
+}
+
+function fromFile(file: WeightsFile, isPlaceholder: boolean): Weights {
+  const meta = file.meta ?? {};
+  const s = meta.snn_settings ?? {};
+  const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
   return {
-    w1: matrix(HIDDEN_SIZE, INPUT_SIZE, std),
-    w2: matrix(OUTPUT_SIZE, HIDDEN_SIZE, std),
-    lambda1: 1,
-    lambda2: 1,
-    isPlaceholder: true,
+    w1: transpose(file.w1),
+    w2: transpose(file.w2),
+    meta,
+    snn: {
+      steps: num(s.steps, DEFAULT_SNN.steps),
+      input_rate: num(s.input_rate, DEFAULT_SNN.input_rate),
+      leak: num(s.leak, DEFAULT_SNN.leak),
+      threshold: num(s.threshold, DEFAULT_SNN.threshold),
+    },
+    isPlaceholder,
   };
 }
 
-function isValid(data: unknown): data is Weights {
-  const w = data as Weights | null;
-  return (
-    !!w &&
-    Array.isArray(w.w1) &&
-    w.w1.length === HIDDEN_SIZE &&
-    Array.isArray(w.w1[0]) &&
-    w.w1[0].length === INPUT_SIZE &&
-    Array.isArray(w.w2) &&
-    w.w2.length === OUTPUT_SIZE &&
-    Array.isArray(w.w2[0]) &&
-    w.w2[0].length === HIDDEN_SIZE
-  );
+/** Random placeholder weights, generated in the file format then converted. */
+export function randomWeights(std = 0.05): Weights {
+  return fromFile({ w1: matrix(INPUT_SIZE, HIDDEN_SIZE, std), w2: matrix(HIDDEN_SIZE, OUTPUT_SIZE, std) }, true);
 }
 
 export async function loadWeights(url = "/weights.json"): Promise<Weights> {
@@ -58,18 +98,10 @@ export async function loadWeights(url = "/weights.json"): Promise<Weights> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data: unknown = await res.json();
-    if (!isValid(data)) throw new Error("unexpected shape");
-    const w = data as Weights;
-    return {
-      w1: w.w1,
-      w2: w.w2,
-      lambda1: typeof w.lambda1 === "number" ? w.lambda1 : 1,
-      lambda2: typeof w.lambda2 === "number" ? w.lambda2 : 1,
-    };
+    if (!isValidFile(data)) throw new Error("unexpected shape (expected w1 [784][64], w2 [64][10])");
+    return fromFile(data, false);
   } catch (err) {
-    console.warn(
-      `[weights] Could not load ${url} (${String(err)}); using random placeholder weights.`,
-    );
+    console.warn(`[weights] Could not load ${url} (${String(err)}); using random placeholder weights.`);
     return randomWeights();
   }
 }
