@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
+import { VRDrawing } from "./VRDrawing";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
 
@@ -82,6 +83,7 @@ export function XRApp() {
           <fog attach="fog" args={["#05060a", 3, 14]} />
           <CameraFit panelExpanded={drawingExpanded} />
           {weights && <Scene weights={weights} />}
+          <VRDrawing />
           <OrbitControls target={FOCUS} enablePan={false} makeDefault />
         </XR>
       </Canvas>
