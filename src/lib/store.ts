@@ -21,9 +21,27 @@ interface AppState {
   setSpeed: (speed: PlaybackSpeed) => void;
   setAiAnswer: (answer: number) => void;
   setSpiking: (status: SpikingStatus | null) => void;
+  lesionMode: boolean;
+  /** Hidden neurons lesioned in BOTH networks. Replaced (never mutated) on change. */
+  lesioned: Set<number>;
+  /** True when the current run was triggered by a lesion change. */
+  lesionRerun: boolean;
+  toggleLesionMode: () => void;
+  toggleLesion: (h: number) => void;
+  lesionRandom: (n: number) => void;
+  healAll: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+const HIDDEN_COUNT = 64;
+
+export const useAppStore = create<AppState>((set, get) => {
+  const applyLesions = (lesioned: Set<number>) =>
+    set((s) =>
+      s.inputImage
+        ? { lesioned, runId: s.runId + 1, aiAnswer: null, spiking: null, lesionRerun: true }
+        : { lesioned },
+    );
+  return {
   inputImage: null,
   runId: 0,
   replayId: 0,
@@ -36,9 +54,35 @@ export const useAppStore = create<AppState>((set) => ({
       runId: s.runId + 1,
       aiAnswer: null,
       spiking: null,
+      lesionRerun: false,
     })),
   replay: () => set((s) => ({ replayId: s.replayId + 1 })),
   setSpeed: (speed) => set({ speed }),
   setAiAnswer: (answer) => set({ aiAnswer: answer }),
   setSpiking: (status) => set({ spiking: status }),
-}));
+  lesionMode: false,
+  lesioned: new Set<number>(),
+  lesionRerun: false,
+  toggleLesionMode: () => set((s) => ({ lesionMode: !s.lesionMode })),
+  toggleLesion: (h) => {
+    const next = new Set(get().lesioned);
+    if (next.has(h)) next.delete(h);
+    else next.add(h);
+    applyLesions(next);
+  },
+  lesionRandom: (n) => {
+    const next = new Set(get().lesioned);
+    const free: number[] = [];
+    for (let h = 0; h < HIDDEN_COUNT; h++) if (!next.has(h)) free.push(h);
+    for (let k = 0; k < n && free.length > 0; k++) {
+      const j = Math.floor(Math.random() * free.length);
+      next.add(free[j]!);
+      free.splice(j, 1);
+    }
+    applyLesions(next);
+  },
+  healAll: () => {
+    if (get().lesioned.size > 0) applyLesions(new Set<number>());
+  },
+  };
+});
