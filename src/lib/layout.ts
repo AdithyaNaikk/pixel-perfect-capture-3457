@@ -11,7 +11,7 @@ export const HIDDEN_SPACING = 0.075;
 
 export const OUTPUT_COUNT = 10;
 export const OUTPUT_RADIUS = 0.035;
-export const OUTPUT_SPACING = 0.085;
+export const OUTPUT_SPACING = 0.1;
 
 /** Layers are flat XY planes facing +Z, placed at different X positions. */
 export const LAYER_GAP = 0.9;

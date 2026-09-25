@@ -46,18 +46,7 @@ export function Scene({ weights }: { weights: Weights }) {
       <SceneModels />
       <LesionLabel />
 
-      {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
-        <Text
-          key={i}
-          position={[0, 1.5 + ((OUTPUT_COUNT - 1) / 2 - i) * OUTPUT_SPACING, -2.5]}
-          fontSize={0.11}
-          color="#e6ecf5"
-          anchorX="center"
-          anchorY="middle"
-        >
-          {String(i)}
-        </Text>
-      ))}
+      <OutputLabels />
 
       <Grid
         position={[0, 0, -2]}
@@ -70,6 +59,33 @@ export function Scene({ weights }: { weights: Weights }) {
         fadeStrength={1.5}
         infiniteGrid
       />
+    </>
+  );
+}
+
+function OutputLabels() {
+  const ai = useAppStore((s) => s.aiAnswer);
+  const sp = useAppStore((s) => (s.spiking?.done ? s.spiking.prediction : null));
+  return (
+    <>
+      {Array.from({ length: OUTPUT_COUNT }, (_, i) => {
+        const isAi = ai === i;
+        const isSp = sp === i;
+        return (
+          <Text
+            key={i}
+            position={[0, 1.5 + ((OUTPUT_COUNT - 1) / 2 - i) * OUTPUT_SPACING, -2.5]}
+            fontSize={isAi || isSp ? 0.1 : 0.085}
+            color={isAi ? AI_COLOR : isSp ? BRAIN_COLOR : "#e6ecf5"}
+            outlineWidth={isAi && isSp ? 0.008 : 0}
+            outlineColor={BRAIN_COLOR}
+            anchorX="center"
+            anchorY="middle"
+          >
+            {String(i)}
+          </Text>
+        );
+      })}
     </>
   );
 }

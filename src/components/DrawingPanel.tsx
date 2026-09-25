@@ -7,11 +7,13 @@ import { useAppStore } from "@/lib/store";
 const SIZE = 280;
 
 interface DrawingPanelProps {
+  /** Optional content shown directly above the panel (e.g. playback controls). */
+  top?: import("react").ReactNode;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }
 
-export function DrawingPanel({ expanded, onExpandedChange }: DrawingPanelProps) {
+export function DrawingPanel({ expanded, onExpandedChange, top }: DrawingPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const strokes = useRef<Point[][]>([]);
@@ -89,6 +91,7 @@ export function DrawingPanel({ expanded, onExpandedChange }: DrawingPanelProps) 
   return (
     <div className="pointer-events-auto fixed bottom-3 left-1/2 z-10 -translate-x-1/2 font-mono text-xs text-slate-300">
       <div className="flex flex-col items-center gap-2">
+        {top}
         <Button
           type="button"
           variant="outline"
