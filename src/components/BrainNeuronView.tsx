@@ -46,10 +46,10 @@ function prepare(damaged: Run, healthy: Run, weights: Weights, lesioned: Set<num
   let maxBranch = 1e-6;
   const cum = new Int32Array(T * 10);
   for (let t = 0; t < T; t++) {
-    for (const h of damaged.hiddenSpikes[t] ?? []) branchSum[t * NB + (h % NB)] += row[h] ?? 0;
+    for (const h of damaged.hiddenSpikes[t] ?? []) branchSum[t * NB + (h % NB)] = branchSum[t * NB + (h % NB)]! + (row[h] ?? 0);
     for (let b = 0; b < NB; b++) maxBranch = Math.max(maxBranch, Math.abs(branchSum[t * NB + b]!));
     for (let d = 0; d < 10; d++) cum[t * 10 + d] = (t > 0 ? cum[(t - 1) * 10 + d]! : 0);
-    for (const d of damaged.outputSpikes[t] ?? []) cum[t * 10 + d]!++;
+    for (const d of damaged.outputSpikes[t] ?? []) cum[t * 10 + d] = cum[t * 10 + d]! + 1;
   }
   return { damaged, healthy, shown, lesioned, branchSum, maxBranch, cum };
 }

@@ -24,7 +24,7 @@ export interface Weights {
   meta: WeightsMeta;
   snn: SnnSettings;
   /** Complete "snn" block from weights.json, if present. */
-  snnBlock?: { W1_scale: number; W2_scale: number; threshold: number; beta: number; timesteps: number; input_rate: number };
+  snnBlock?: { W1_scale: number; W2_scale: number; threshold: number; beta: number; timesteps: number; input_rate: number } | undefined;
   /** True when these are random placeholder weights. */
   isPlaceholder?: boolean;
 }
