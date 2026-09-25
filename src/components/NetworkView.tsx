@@ -32,7 +32,11 @@ export interface NetworkViewProps {
 const TOP_INCOMING = 6;
 const DIM = 0.22;
 const INPUT_OFF = 0.015;
-const ACTIVATION_MS = 150;
+const INPUT_SWEEP_END = 0.12;
+const HIDDEN_SWEEP_END = 0.27;
+const OUTPUT_SWEEP_END = 0.4;
+const MIN_ACTIVE_BRIGHTNESS = 0.15;
+const WINNER_SCALE = 1.35;
 const CALCULATION_COUNT = "50,816";
 import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, OUTPUT_Z, TITLE_Y } from "@/lib/layout";
 const INACTIVE = new THREE.Color(INACTIVE_COLOR);
@@ -76,9 +80,12 @@ export function NetworkView({
   const hiddenRef = useRef<THREE.InstancedMesh>(null);
   const outputRef = useRef<THREE.InstancedMesh>(null);
   const hoverRef = useRef<THREE.Mesh>(null);
-  const activationStart = useRef<number | null>(null);
+  const winnerRef = useRef<THREE.Group>(null);
+  const lineMaterialRef = useRef<THREE.LineBasicMaterial>(null);
+  const sweepElapsed = useRef<number | null>(null);
   const hiddenTarget = useRef<Float32Array | null>(null);
   const outputTarget = useRef<Float32Array | null>(null);
+  const lineTarget = useRef<Float32Array | null>(null);
   const [aiResult, setAiResult] = useState<ForwardResult | null>(null);
   const inputImage = useAppStore((s) => s.inputImage);
   const runId = useAppStore((s) => s.runId);
@@ -131,9 +138,44 @@ export function NetworkView({
     const result = forward(inputImage, weights, useAppStore.getState().lesioned);
     const maxHidden = Math.max(0, ...result.hidden);
     const maxOutput = Math.max(0, ...result.output);
-    hiddenTarget.current = result.hidden.map((value) => (maxHidden > 0 ? value / maxHidden : 0));
-    outputTarget.current = result.output.map((value) => (maxOutput > 0 ? Math.max(0, value) / maxOutput : 0));
-    activationStart.current = performance.now();
+    hiddenTarget.current = result.hidden.map((value) =>
+      value > 0 && maxHidden > 0 ? Math.max(MIN_ACTIVE_BRIGHTNESS, value / maxHidden) : 0,
+    );
+    outputTarget.current = result.output.map((value) =>
+      value > 0 && maxOutput > 0 ? Math.max(MIN_ACTIVE_BRIGHTNESS, value / maxOutput) : 0,
+    );
+
+    const lineActivity: number[] = [];
+    let maxInputLine = 0;
+    for (let h = 0; h < weights.w1.length; h++) {
+      const row = weights.w1[h];
+      if (!row) continue;
+      const indices = Array.from(row.keys())
+        .sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0))
+        .slice(0, TOP_INCOMING);
+      for (const i of indices) {
+        const activity = Math.abs((inputImage[i] ?? 0) * (row[i] ?? 0));
+        lineActivity.push(activity);
+        maxInputLine = Math.max(maxInputLine, activity);
+      }
+    }
+    const inputLineCount = lineActivity.length;
+    let maxOutputLine = 0;
+    for (let o = 0; o < weights.w2.length; o++) {
+      const row = weights.w2[o];
+      if (!row) continue;
+      for (let h = 0; h < row.length; h++) {
+        const activity = Math.abs((result.hidden[h] ?? 0) * (row[h] ?? 0));
+        lineActivity.push(activity);
+        maxOutputLine = Math.max(maxOutputLine, activity);
+      }
+    }
+    lineTarget.current = Float32Array.from(lineActivity, (value, index) => {
+      const max = index < inputLineCount ? maxInputLine : maxOutputLine;
+      return max > 0 ? value / max : 0;
+    });
+    sweepElapsed.current = 0;
+    if (winnerRef.current) winnerRef.current.visible = false;
     setAiResult(result);
     useAppStore.getState().setAiAnswer(result.prediction);
   }, [side, runId, inputImage, weights]);
@@ -143,34 +185,98 @@ export function NetworkView({
       full: new THREE.Color(color),
       base: INACTIVE.clone(),
       c: new THREE.Color(),
+      matrix: new THREE.Matrix4(),
+      quaternion: new THREE.Quaternion(),
+      scale: new THREE.Vector3(),
     }),
     [color],
   );
 
-  useFrame(() => {
-    if (side !== "ai" || activationStart.current === null) return;
+  useFrame((_, rawDelta) => {
+    if (side !== "ai" || sweepElapsed.current === null) return;
+    const elapsed = Math.min(sweepElapsed.current + Math.min(rawDelta, 0.05), OUTPUT_SWEEP_END);
+    sweepElapsed.current = elapsed;
     const hiddenMesh = hiddenRef.current;
     const outputMesh = outputRef.current;
     const hidden = hiddenTarget.current;
     const output = outputTarget.current;
     if (!hiddenMesh || !outputMesh || !hidden || !output) return;
 
-    const { full, base, c: tmp } = fadeColors;
+    const { full, base, c: tmp, matrix, quaternion, scale } = fadeColors;
     const lesioned = useAppStore.getState().lesioned;
-    const progress = Math.min((performance.now() - activationStart.current) / ACTIVATION_MS, 1);
+    const inputProgress = Math.min(elapsed / INPUT_SWEEP_END, 1);
+    const hiddenProgress = Math.max(0, Math.min((elapsed - INPUT_SWEEP_END) / (HIDDEN_SWEEP_END - INPUT_SWEEP_END), 1));
+    const outputProgress = Math.max(0, Math.min((elapsed - HIDDEN_SWEEP_END) / (OUTPUT_SWEEP_END - HIDDEN_SWEEP_END), 1));
+
+    const inputMesh = inputRef.current;
+    if (inputMesh) {
+      for (let i = 0; i < inputPos.length; i++) {
+        tmp.copy(base).lerp(full, (inputImage?.[i] ?? 0) * inputProgress);
+        inputMesh.setColorAt(i, tmp);
+      }
+      if (inputMesh.instanceColor) inputMesh.instanceColor.needsUpdate = true;
+    }
 
     for (let i = 0; i < hidden.length; i++) {
       if (lesioned.has(i)) tmp.copy(LESION_GREY);
-      else tmp.copy(base).lerp(full, (hidden[i] ?? 0) * progress);
+      else tmp.copy(base).lerp(full, (hidden[i] ?? 0) * hiddenProgress);
       hiddenMesh.setColorAt(i, tmp);
     }
     for (let i = 0; i < output.length; i++) {
-      tmp.copy(base).lerp(full, (output[i] ?? 0) * progress);
+      tmp.copy(base).lerp(full, (output[i] ?? 0) * outputProgress);
       outputMesh.setColorAt(i, tmp);
+      const winnerScale = aiResult?.prediction === i ? 1 + (WINNER_SCALE - 1) * outputProgress : 1;
+      scale.set(winnerScale, winnerScale, winnerScale);
+      const position = outputPos[i];
+      if (position) {
+        matrix.compose(position, quaternion, scale);
+        outputMesh.setMatrixAt(i, matrix);
+      }
     }
     if (hiddenMesh.instanceColor) hiddenMesh.instanceColor.needsUpdate = true;
     if (outputMesh.instanceColor) outputMesh.instanceColor.needsUpdate = true;
-    if (progress >= 1) activationStart.current = null;
+    outputMesh.instanceMatrix.needsUpdate = true;
+
+    const lineColors = lineGeometries.all.attributes["color"];
+    const targets = lineTarget.current;
+    const lineMaterial = lineMaterialRef.current;
+    if (lineColors && targets && lineMaterial) {
+      const colors = lineColors.array as Float32Array;
+      const inputSegments = TOP_INCOMING * hiddenPos.length;
+      const inputPulse = elapsed >= INPUT_SWEEP_END && elapsed < HIDDEN_SWEEP_END
+        ? Math.sin(((elapsed - INPUT_SWEEP_END) / (HIDDEN_SWEEP_END - INPUT_SWEEP_END)) * Math.PI)
+        : 0;
+      const outputPulse = elapsed >= HIDDEN_SWEEP_END && elapsed < OUTPUT_SWEEP_END
+        ? Math.sin(((elapsed - HIDDEN_SWEEP_END) / (OUTPUT_SWEEP_END - HIDDEN_SWEEP_END)) * Math.PI)
+        : 0;
+      for (let segment = 0; segment < targets.length; segment++) {
+        const pulse = segment < inputSegments ? inputPulse : outputPulse;
+        const brightness = 0.12 + 0.88 * (targets[segment] ?? 0) * pulse;
+        const offset = segment * 6;
+        colors[offset] = full.r * brightness;
+        colors[offset + 1] = full.g * brightness;
+        colors[offset + 2] = full.b * brightness;
+        colors[offset + 3] = full.r * brightness;
+        colors[offset + 4] = full.g * brightness;
+        colors[offset + 5] = full.b * brightness;
+      }
+      lineColors.needsUpdate = true;
+      lineMaterial.opacity = elapsed < OUTPUT_SWEEP_END ? 0.8 : 0.18;
+    }
+
+    if (winnerRef.current) winnerRef.current.visible = outputProgress > 0;
+    if (elapsed >= OUTPUT_SWEEP_END) {
+      if (lineColors) {
+        const colors = lineColors.array as Float32Array;
+        for (let i = 0; i < colors.length; i += 3) {
+          colors[i] = full.r;
+          colors[i + 1] = full.g;
+          colors[i + 2] = full.b;
+        }
+        lineColors.needsUpdate = true;
+      }
+      sweepElapsed.current = null;
+    }
   });
 
   const lineGeometries = useMemo(() => {
@@ -312,7 +418,7 @@ export function NetworkView({
   return (
     <group position={position} name={`network-${side}`}>
       <lineSegments geometry={lineGeometries.all} frustumCulled={false} renderOrder={-1}>
-        <lineBasicMaterial vertexColors transparent opacity={0.18} depthWrite={false} />
+        <lineBasicMaterial ref={lineMaterialRef} vertexColors transparent opacity={0.18} depthWrite={false} />
       </lineSegments>
 
       <instancedMesh
@@ -374,19 +480,24 @@ export function NetworkView({
 
       {side === "ai" && aiResult && winnerPosition && (
         <>
-          <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.02]} renderOrder={2}>
-            <torusGeometry args={[OUTPUT_RADIUS * 1.55, 0.006, 8, 48]} />
-            <meshBasicMaterial color={color} transparent opacity={0.95} toneMapped={false} />
-          </mesh>
-          <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.015]} renderOrder={2}>
-            <torusGeometry args={[OUTPUT_RADIUS * 2.15, 0.004, 8, 48]} />
-            <meshBasicMaterial color={color} transparent opacity={0.35} toneMapped={false} />
-          </mesh>
+          <group ref={winnerRef} visible={false}>
+            <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.02]} renderOrder={2}>
+              <torusGeometry args={[OUTPUT_RADIUS * 1.75, 0.009, 8, 48]} />
+              <meshBasicMaterial color={color} transparent opacity={1} toneMapped={false} />
+            </mesh>
+            <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.015]} renderOrder={2}>
+              <torusGeometry args={[OUTPUT_RADIUS * 2.35, 0.005, 8, 48]} />
+              <meshBasicMaterial color={color} transparent opacity={0.45} toneMapped={false} />
+            </mesh>
+          </group>
           <Text position={[hidX, ANSWER_Y, LABEL_Z]} fontSize={ANSWER_SIZE} color={color} anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#05060a">
             {`AI: ${aiResult.prediction}`}
           </Text>
           <Text position={[hidX, ANSWER_SUB_Y, LABEL_Z]} fontSize={0.05} color="#d7e8ef" anchorX="center" anchorY="middle">
             {`1 step · ${CALCULATION_COUNT} calculations`}
+          </Text>
+          <Text position={[hidX, ANSWER_SUB_Y - 0.13, LABEL_Z]} fontSize={0.045} color="#d7e8ef" anchorX="center" anchorY="middle">
+            No spikes: each neuron computes one number, once.
           </Text>
         </>
       )}
