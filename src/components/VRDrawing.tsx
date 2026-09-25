@@ -34,7 +34,6 @@ function VRDrawingInner() {
   const run = useAppStore((s) => s.run);
   const lesionMode = useAppStore((s) => s.lesionMode);
   const lesionedCount = useAppStore((s) => s.lesioned.size);
-  const bringPadRef = useRef<() => void>(() => {});
   const prev = useRef({ a: false, b: false });
   /** Strokes in panel-local 2D coordinates (metres, y up). */
   const strokes = useRef<Point[][]>([]);
@@ -45,6 +44,8 @@ function VRDrawingInner() {
   const [warning, setWarning] = useState("");
   const weightsStatus = useAppStore((s) => s.weightsStatus);
   const selfTest = useAppStore((s) => s.selfTest);
+  const brainSelfTest = useAppStore((s) => s.brainSelfTest);
+  const brainCounts = useAppStore((s) => s.brainCounts);
 
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -129,7 +130,6 @@ function VRDrawingInner() {
     pad.rotation.set(0, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0);
     current.current = null;
   };
-  bringPadRef.current = bringPad;
 
   useFrame(() => {
     // Teleport detection: the XR origin (camera parent) jumped -> bring the pad along.
@@ -212,7 +212,7 @@ function VRDrawingInner() {
   }, [h]);
 
   return (
-    <group position={PANEL_POS}>
+    <group ref={padRef} position={PANEL_POS}>
       <mesh
         renderOrder={0}
         onPointerDown={(e) => e.stopPropagation()}
@@ -228,44 +228,55 @@ function VRDrawingInner() {
       <lineSegments geometry={geometry} frustumCulled={false} raycast={() => null}>
         <lineBasicMaterial color={GLOW} toneMapped={false} />
       </lineSegments>
-      <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
+      <Text position={[0, h + 0.02, 0]} fontSize={0.02} color={GLOW} anchorX="center" anchorY="middle">
         Draw here
       </Text>
-      <Text position={[0, h + 0.075, 0]} fontSize={0.022} color={weightsStatus === "RANDOM WEIGHTS" ? "#ff5566" : "#7fe3a8"} anchorX="center" anchorY="middle">
+      <Text position={[0, h + 0.05, 0]} fontSize={0.014} color={weightsStatus === "RANDOM WEIGHTS" ? "#ff5566" : "#7fe3a8"} anchorX="center" anchorY="middle">
         {`${weightsStatus}${selfTest ? "  ·  " + selfTest : ""}`}
       </Text>
       {warning && (
-        <Text position={[0, -h + 0.04, 0.004]} fontSize={0.026} color="#ffb070" anchorX="center" anchorY="middle">
+        <Text position={[0, -h + 0.03, 0.004]} fontSize={0.016} color="#ffb070" anchorX="center" anchorY="middle">
           {warning}
         </Text>
       )}
-      <VRButton label="Test digit" position={[-0.5, -h - 0.07, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
-      <VRButton label="Clear" position={[-0.3, -h - 0.07, 0]} onPress={clear} />
-      <VRButton label="Submit" position={[-0.1, -h - 0.07, 0]} onPress={submit} />
+      <mesh ref={cursorRef} visible={false} raycast={() => null} renderOrder={5}>
+        <circleGeometry args={[0.004, 12]} />
+        <meshBasicMaterial color="#ffffff" toneMapped={false} depthTest={false} />
+      </mesh>
+      <VRButton label="Test digit" position={[-0.21, -h - 0.045, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
+      <VRButton label="Clear" position={[-0.07, -h - 0.045, 0]} onPress={clear} />
+      <VRButton label="Submit" position={[0.07, -h - 0.045, 0]} onPress={submit} />
+      <VRButton label="Bring pad" position={[0.21, -h - 0.045, 0]} onPress={bringPad} />
       <VRButton
         label="Lesion mode"
-        position={[0.1, -h - 0.07, 0]}
+        position={[-0.21, -h - 0.105, 0]}
         onPress={() => useAppStore.getState().toggleLesionMode()}
         active={lesionMode}
       />
-      <VRButton label="Heal all" position={[0.3, -h - 0.07, 0]} onPress={() => useAppStore.getState().healAll()} />
+      <VRButton label="Lesion 10 random" position={[-0.07, -h - 0.105, 0]} onPress={() => useAppStore.getState().lesionRandom(10)} />
+      <VRButton label="Heal all" position={[0.07, -h - 0.105, 0]} onPress={() => useAppStore.getState().healAll()} />
       <VRButton
         label="Run again"
-        position={[0.5, -h - 0.07, 0]}
+        position={[0.21, -h - 0.105, 0]}
         onPress={() => {
           const img = useAppStore.getState().inputImage;
           if (img) useAppStore.getState().run(img);
         }}
       />
-      <Text position={[0.1, -h - 0.135, 0]} fontSize={0.022} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
-        {`Lesioned: ${lesionedCount} / 64`}
+      <Text position={[0, -h - 0.155, 0]} fontSize={0.016} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
+        {`Damaged: ${lesionedCount} / 64${brainSelfTest ? "  ·  " + brainSelfTest : ""}`}
       </Text>
-      <group position={[h + 0.12, 0, 0]}>
+      {brainCounts && (
+        <Text position={[0, -h - 0.18, 0]} fontSize={0.014} color="#ffb070" anchorX="center" anchorY="middle">
+          {`Brain vote  ${brainCounts.map((c, d) => `${d}:${c}`).join("  ")}`}
+        </Text>
+      )}
+      <group position={[h + 0.09, 0, 0]}>
         <mesh>
-          <planeGeometry args={[0.16, 0.16]} />
+          <planeGeometry args={[0.12, 0.12]} />
           <meshBasicMaterial map={texture} toneMapped={false} />
         </mesh>
-        <Text position={[0, -0.1, 0]} fontSize={0.016} color="#9fb0c4" anchorX="center" anchorY="middle">
+        <Text position={[0, -0.075, 0]} fontSize={0.012} color="#9fb0c4" anchorX="center" anchorY="middle">
           network input 28×28
         </Text>
       </group>
@@ -295,10 +306,10 @@ function VRButton({
         onPointerOver={() => setHover(true)}
         onPointerOut={() => setHover(false)}
       >
-        <planeGeometry args={[0.18, 0.07]} />
+        <planeGeometry args={[0.13, 0.05]} />
         <meshBasicMaterial color={active ? (hover ? "#d6334a" : "#b3202f") : hover ? "#2c3f57" : "#162232"} side={THREE.DoubleSide} />
       </mesh>
-      <Text position={[0, 0, 0.002]} fontSize={0.026} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
+      <Text position={[0, 0, 0.002]} fontSize={label.length > 12 ? 0.013 : 0.017} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
         {label}
       </Text>
     </group>
