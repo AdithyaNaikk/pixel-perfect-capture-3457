@@ -112,7 +112,30 @@ export function XRApp() {
         </span>
       </div>
       <PlaybackControls />
+      <LesionControls />
       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
+    </div>
+  );
+}
+
+function LesionControls() {
+  const on = useAppStore((s) => s.lesionMode);
+  const toggle = useAppStore((s) => s.toggleLesionMode);
+  const random = useAppStore((s) => s.lesionRandom);
+  const heal = useAppStore((s) => s.healAll);
+  const btn = "rounded-full border border-red-400/40 bg-red-400/10 px-3 py-1 text-red-200 hover:bg-red-400/20";
+  return (
+    <div className="fixed right-5 top-28 flex flex-col items-end gap-1.5 font-mono text-xs">
+      <button onClick={toggle} aria-pressed={on} className={`${btn} ${on ? "bg-red-500/40 text-red-50" : ""}`}>
+        Lesion mode {on ? "on" : "off"}
+      </button>
+      {on && (
+        <>
+          <button onClick={() => random(10)} className={btn}>Lesion 10 random</button>
+          <button onClick={heal} className={btn}>Heal all</button>
+          <span className="text-[10px] text-red-200/70">click a middle neuron</span>
+        </>
+      )}
     </div>
   );
 }

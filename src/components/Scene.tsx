@@ -3,6 +3,7 @@ import { Grid, Text } from "@react-three/drei";
 import { OUTPUT_COUNT, OUTPUT_SPACING } from "@/lib/layout";
 
 import { Guidance3D } from "./Guidance";
+import { useAppStore } from "@/lib/store";
 import { NetworkView } from "./NetworkView";
 import type { Weights } from "@/lib/weights";
 
@@ -41,6 +42,7 @@ export function Scene({ weights }: { weights: Weights }) {
       />
 
       <Guidance3D />
+      <LesionLabel />
 
       {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
         <Text
@@ -67,5 +69,15 @@ export function Scene({ weights }: { weights: Weights }) {
         infiniteGrid
       />
     </>
+  );
+}
+
+function LesionLabel() {
+  const on = useAppStore((s) => s.lesionMode);
+  if (!on) return null;
+  return (
+    <Text position={[0, 2.22, -2.48]} fontSize={0.1} color="#ff3344" anchorX="center" anchorY="middle" outlineWidth={0.004} outlineColor="#05060a">
+      LESION MODE
+    </Text>
   );
 }

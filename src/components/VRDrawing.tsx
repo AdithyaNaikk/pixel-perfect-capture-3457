@@ -25,6 +25,8 @@ export function VRDrawing() {
 
 function VRDrawingInner() {
   const controller = useXRInputSourceState("controller", "right");
+  const left = useXRInputSourceState("controller", "left");
+  const prevX = useRef(false);
   const run = useAppStore((s) => s.run);
   const strokes3d = useRef<THREE.Vector3[][]>([]);
   const current = useRef<THREE.Vector3[] | null>(null);
@@ -101,8 +103,13 @@ function VRDrawingInner() {
   };
 
   useFrame(() => {
+    const x = pressed(left?.gamepad["x-button"]);
+    if (x && !prevX.current) useAppStore.getState().toggleLesionMode();
+    prevX.current = x;
     if (!controller) return;
-    const trigger = pressed(controller.gamepad["xr-standard-trigger"]);
+    // In lesion mode the trigger selects neurons via the controller ray instead of drawing.
+    const trigger =
+      !useAppStore.getState().lesionMode && pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
     const b = pressed(controller.gamepad["b-button"]);
     const was = prev.current;
@@ -159,7 +166,7 @@ function VRDrawingInner() {
           Draw here
         </Text>
         <Text position={[0, -h - 0.03, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
-          Trigger: draw · A: Run · B: Clear
+          Trigger: draw · A: Run · B: Clear · X: lesion mode
         </Text>
         <group position={[h + 0.12, 0, 0]}>
           <mesh>

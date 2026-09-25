@@ -14,7 +14,7 @@ import {
 import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
-import { SpikingPlayback } from "./SpikingPlayback";
+import { LESION_GREY, SpikingPlayback } from "./SpikingPlayback";
 
 export type NetworkSide = "ai" | "brain";
 
@@ -35,6 +35,8 @@ const DIM = 0.22;
 const INPUT_OFF = 0.015;
 const ACTIVATION_MS = 150;
 const CALCULATION_COUNT = "50,816";
+const X_COLOR = new THREE.Color("#ff3344");
+const X_ARM = HIDDEN_RADIUS * 2.2;
 
 /** Sets instance matrices once and installs an instanceColor buffer. */
 function useInstanced(
@@ -111,7 +113,7 @@ export function NetworkView({
   useEffect(() => {
     if (side !== "ai" || runId === 0 || !inputImage) return;
 
-    const result = forward(inputImage, weights, new Set<number>());
+    const result = forward(inputImage, weights, useAppStore.getState().lesioned);
     const maxHidden = Math.max(0, ...result.hidden);
     const maxOutput = Math.max(0, ...result.output);
     hiddenTarget.current = result.hidden.map((value) => (maxHidden > 0 ? value / maxHidden : 0));
@@ -121,6 +123,15 @@ export function NetworkView({
     useAppStore.getState().setAiAnswer(result.prediction);
   }, [side, runId, inputImage, weights]);
 
+  const fadeColors = useMemo(
+    () => ({
+      full: new THREE.Color(color),
+      base: new THREE.Color(color).multiplyScalar(DIM),
+      c: new THREE.Color(),
+    }),
+    [color],
+  );
+
   useFrame(() => {
     if (side !== "ai" || activationStart.current === null) return;
     const hiddenMesh = hiddenRef.current;
@@ -129,13 +140,13 @@ export function NetworkView({
     const output = outputTarget.current;
     if (!hiddenMesh || !outputMesh || !hidden || !output) return;
 
-    const full = new THREE.Color(color);
-    const base = full.clone().multiplyScalar(DIM);
-    const tmp = new THREE.Color();
+    const { full, base, c: tmp } = fadeColors;
+    const lesioned = useAppStore.getState().lesioned;
     const progress = Math.min((performance.now() - activationStart.current) / ACTIVATION_MS, 1);
 
     for (let i = 0; i < hidden.length; i++) {
-      tmp.copy(base).lerp(full, (hidden[i] ?? 0) * progress);
+      if (lesioned.has(i)) tmp.copy(LESION_GREY);
+      else tmp.copy(base).lerp(full, (hidden[i] ?? 0) * progress);
       hiddenMesh.setColorAt(i, tmp);
     }
     for (let i = 0; i < output.length; i++) {
@@ -154,6 +165,8 @@ export function NetworkView({
     const outputVerts: number[] = [];
     const outputColors: number[] = [];
 
+    const inputRanges: number[][] = Array.from({ length: hiddenPos.length }, () => []);
+    const outputRanges: number[][] = Array.from({ length: hiddenPos.length }, () => []);
     const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, w: number) => {
       verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
       const c = w >= 0 ? positive : NEGATIVE_COLOR;
@@ -172,6 +185,7 @@ export function NetworkView({
         const input = inputPos[i];
         const weight = row[i];
         if (!input || weight === undefined) continue;
+        inputRanges[h]!.push(inputVerts.length);
         push(inputVerts, inputColors, input, hidden, weight);
       }
     }
@@ -185,6 +199,7 @@ export function NetworkView({
         const hidden = hiddenPos[h];
         const weight = row[h];
         if (!hidden || weight === undefined) continue;
+        outputRanges[h]!.push(outputVerts.length);
         push(outputVerts, outputColors, hidden, output, weight);
       }
     }
@@ -198,6 +213,10 @@ export function NetworkView({
     return {
       input: makeGeometry(inputVerts, inputColors),
       output: makeGeometry(outputVerts, outputColors),
+      inputOrig: new Float32Array(inputVerts),
+      outputOrig: new Float32Array(outputVerts),
+      inputRanges,
+      outputRanges,
     };
   }, [weights, color, inputPos, hiddenPos, outputPos]);
 
@@ -205,6 +224,60 @@ export function NetworkView({
     lineGeometries.input.dispose();
     lineGeometries.output.dispose();
   }, [lineGeometries]);
+
+  // Lesions: grey neurons, red X marks, hidden connection lines.
+  const xRef = useRef<THREE.InstancedMesh>(null);
+  useEffect(() => {
+    const full = new THREE.Color(color).multiplyScalar(DIM);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    const scale = new THREE.Vector3();
+    const pos = new THREE.Vector3();
+    let prevSet = new Set<number>();
+    const collapse = (geo: THREE.BufferGeometry, orig: Float32Array, ranges: number[][], set: Set<number>) => {
+      const arr = geo.attributes["position"]!.array as Float32Array;
+      arr.set(orig);
+      for (const h of set) {
+        for (const o of ranges[h] ?? []) {
+          arr[o + 3] = arr[o]!;
+          arr[o + 4] = arr[o + 1]!;
+          arr[o + 5] = arr[o + 2]!;
+        }
+      }
+      geo.attributes["position"]!.needsUpdate = true;
+    };
+    const apply = (set: Set<number>) => {
+      const hMesh = hiddenRef.current;
+      const xMesh = xRef.current;
+      if (hMesh) {
+        for (const h of prevSet) if (!set.has(h)) hMesh.setColorAt(h, full);
+        for (const h of set) hMesh.setColorAt(h, LESION_GREY);
+        if (hMesh.instanceColor) hMesh.instanceColor.needsUpdate = true;
+      }
+      if (xMesh) {
+        for (let h = 0; h < hiddenPos.length; h++) {
+          const p = hiddenPos[h]!;
+          const on = set.has(h);
+          for (let k = 0; k < 2; k++) {
+            q.setFromAxisAngle(zAxis, k === 0 ? Math.PI / 4 : -Math.PI / 4);
+            scale.set(on ? 1 : 0, on ? 1 : 0, on ? 1 : 0);
+            pos.set(p.x, p.y, p.z + HIDDEN_RADIUS + 0.004);
+            m.compose(pos, q, scale);
+            xMesh.setMatrixAt(h * 2 + k, m);
+          }
+        }
+        xMesh.instanceMatrix.needsUpdate = true;
+      }
+      collapse(lineGeometries.input, lineGeometries.inputOrig, lineGeometries.inputRanges, set);
+      collapse(lineGeometries.output, lineGeometries.outputOrig, lineGeometries.outputRanges, set);
+      prevSet = set;
+    };
+    apply(useAppStore.getState().lesioned);
+    return useAppStore.subscribe((st, prev) => {
+      if (st.lesioned !== prev.lesioned) apply(st.lesioned);
+    });
+  }, [color, hiddenPos, lineGeometries]);
 
   // Drawn input->hidden connections, per input pixel.
   const inputOut = useMemo(() => {
@@ -245,9 +318,26 @@ export function NetworkView({
         args={[undefined, undefined, hiddenPos.length]}
         frustumCulled={false}
         renderOrder={1}
+        onClick={(e) => {
+          const st = useAppStore.getState();
+          if (!st.lesionMode || e.instanceId === undefined) return;
+          e.stopPropagation();
+          st.toggleLesion(e.instanceId);
+        }}
       >
         <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
         <meshBasicMaterial toneMapped={false} />
+      </instancedMesh>
+
+      <instancedMesh
+        ref={xRef}
+        args={[undefined, undefined, hiddenPos.length * 2]}
+        frustumCulled={false}
+        renderOrder={3}
+        raycast={() => null}
+      >
+        <boxGeometry args={[X_ARM, X_ARM * 0.18, 0.002]} />
+        <meshBasicMaterial color={X_COLOR} toneMapped={false} />
       </instancedMesh>
 
       <instancedMesh

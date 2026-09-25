@@ -15,6 +15,7 @@ const MAX_DOTS = 800;
 const FLASH = new THREE.Color("#ffd9a8");
 const BAR_MAX = 0.32;
 const BAR_H = 0.03;
+export const LESION_GREY = new THREE.Color("#2a2a2e");
 
 interface Props {
   weights: Weights;
@@ -68,7 +69,7 @@ export function SpikingPlayback(props: Props) {
   useEffect(() => {
     const img = useAppStore.getState().inputImage;
     if (runId === 0 || !img) return;
-    setResult(simulate(img, weights, new Set<number>()));
+    setResult(simulate(img, weights, useAppStore.getState().lesioned));
     useAppStore.getState().setSpiking({ done: false, prediction: null });
   }, [runId, weights]);
 
@@ -116,9 +117,11 @@ export function SpikingPlayback(props: Props) {
       }
       if (inMesh.instanceColor) inMesh.instanceColor.needsUpdate = true;
     }
+    const lesioned = useAppStore.getState().lesioned;
     if (hMesh) {
       for (let i = 0; i < hiddenPos.length; i++) {
-        tmp.c.copy(tmp.base).lerp(FLASH, tmp.hidden[i]!);
+        if (lesioned.has(i)) tmp.c.copy(LESION_GREY);
+        else tmp.c.copy(tmp.base).lerp(FLASH, tmp.hidden[i]!);
         hMesh.setColorAt(i, tmp.c);
       }
       if (hMesh.instanceColor) hMesh.instanceColor.needsUpdate = true;
@@ -152,6 +155,7 @@ export function SpikingPlayback(props: Props) {
         const a = inputPos[i]!;
         for (const h of targets) {
           if (n >= MAX_DOTS) break;
+          if (lesioned.has(h)) continue;
           place(a, hiddenPos[h]!, k);
         }
       }
