@@ -3,6 +3,7 @@ import { Grid, Text } from "@react-three/drei";
 import { OUTPUT_COUNT, OUTPUT_SPACING } from "@/lib/layout";
 
 import { Guidance3D } from "./Guidance";
+import { SceneModels } from "./Models";
 import { useAppStore } from "@/lib/store";
 import { NetworkView } from "./NetworkView";
 import type { Weights } from "@/lib/weights";
@@ -42,6 +43,7 @@ export function Scene({ weights }: { weights: Weights }) {
       />
 
       <Guidance3D />
+      <SceneModels />
       <LesionLabel />
 
       {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
