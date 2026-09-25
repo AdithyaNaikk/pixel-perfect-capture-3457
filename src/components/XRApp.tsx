@@ -55,8 +55,12 @@ export function XRApp() {
   }, []);
 
   return (
-    <div className="fixed inset-0" style={{ backgroundColor: "#05060a" }}>
+    <div
+      className="fixed inset-0 h-screen w-screen overflow-hidden"
+      style={{ backgroundColor: "#05060a" }}
+    >
       <Canvas
+        style={{ width: "100%", height: "100%", display: "block" }}
         dpr={[1, 1.5]}
         shadows={false}
         camera={{ position: [0, 1.5, 2.2], fov: 65, near: 0.05, far: 100 }}
