@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
-import { GuidanceLine, HINT_DESKTOP, HINT_VR } from "./Guidance";
 import { VRDrawing } from "./VRDrawing";
 import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
@@ -105,9 +104,6 @@ export function XRApp() {
             </div>
           )}
         </div>
-        <div className="min-w-0 pt-1">
-          <GuidanceLine />
-        </div>
         <div className="flex flex-col items-end gap-2">
         {vrSupported === true ? (
           <button
@@ -127,11 +123,6 @@ export function XRApp() {
           <LesionControls />
         </div>
       </div>
-      <div className="pointer-events-none fixed inset-x-0 bottom-1 flex justify-center">
-        <span className="font-mono text-[10px] text-slate-500">
-          {vrSupported ? HINT_VR : HINT_DESKTOP}
-        </span>
-      </div>
       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} top={<PlaybackControls />} />
     </div>
   );
@@ -142,6 +133,7 @@ function LesionControls() {
   const toggle = useAppStore((s) => s.toggleLesionMode);
   const random = useAppStore((s) => s.lesionRandom);
   const heal = useAppStore((s) => s.healAll);
+  const count = useAppStore((s) => s.lesioned.size);
   const btn = "rounded-full border border-red-400/40 bg-red-400/10 px-3 py-1 text-red-200 hover:bg-red-400/20";
   return (
     <div className="pointer-events-auto flex flex-col items-end gap-1.5 font-mono text-xs">
@@ -152,7 +144,7 @@ function LesionControls() {
         <>
           <button onClick={() => random(10)} className={btn}>Lesion 10 random</button>
           <button onClick={heal} className={btn}>Heal all</button>
-          <span className="text-[10px] text-red-200/70">click a middle neuron</span>
+          <span className="text-[10px] text-red-200/70">Lesioned: {count} / 64</span>
         </>
       )}
     </div>
