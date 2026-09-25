@@ -40,7 +40,7 @@ function argmaxCounts(counts: Int32Array, v: Float32Array): number {
 }
 
 export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number>): SnnResult {
-  const { input_rate: RATE, leak: LEAK, threshold: THRESHOLD } = weights.snn;
+  const { input_rate: RATE = 0.3, leak: LEAK = 0.95, threshold: THRESHOLD = 1 } = weights.snn ?? {};
   // Per-layer normalisation: max ANN activation of each layer on THIS input -> 1.
   const ann = forward(x, weights, lesioned);
   let maxH = 0;
