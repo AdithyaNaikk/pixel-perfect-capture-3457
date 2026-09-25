@@ -5,6 +5,8 @@ export interface Weights {
   w2: number[][];
   lambda1: number;
   lambda2: number;
+  /** True when these are random placeholder weights. */
+  isPlaceholder?: boolean;
 }
 
 export const INPUT_SIZE = 784;
@@ -32,6 +34,7 @@ export function randomWeights(std = 0.05): Weights {
     w2: matrix(OUTPUT_SIZE, HIDDEN_SIZE, std),
     lambda1: 1,
     lambda2: 1,
+    isPlaceholder: true,
   };
 }
 
