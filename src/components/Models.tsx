@@ -31,7 +31,7 @@ function checkModel(url: string): Promise<boolean> {
 }
 if (typeof window !== "undefined") [CHIP_URL, NEURON_URL, PEN_URL].forEach(checkModel);
 
-class Boundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
+export class Boundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -44,7 +44,7 @@ class Boundary extends Component<{ children: ReactNode; fallback?: ReactNode }, 
   }
 }
 
-function useExists(url: string) {
+export function useExists(url: string) {
   const [ok, setOk] = useState(false);
   useEffect(() => {
     let alive = true;
