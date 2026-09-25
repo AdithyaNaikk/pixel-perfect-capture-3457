@@ -15,6 +15,7 @@ import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
 import { LESION_GREY, SpikingPlayback } from "./SpikingPlayback";
+import { CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
 
 export type NetworkSide = "ai" | "brain";
 
@@ -48,6 +49,7 @@ function useInstanced(
   positions: THREE.Vector3[],
   color: string,
   ref: RefObject<THREE.InstancedMesh | null>,
+  twistOffset: number | null = null,
 ) {
   useEffect(() => {
     const mesh = ref.current;
@@ -58,13 +60,14 @@ function useInstanced(
       const position = positions[i];
       if (!position) continue;
       dummy.position.copy(position);
+      if (twistOffset !== null) neuronQuat(i + twistOffset, dummy.quaternion);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
       mesh.setColorAt(i, base);
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [positions, color, ref]);
+  }, [positions, color, ref, twistOffset]);
 }
 
 export function NetworkView({
@@ -96,8 +99,25 @@ export function NetworkView({
   const outputPos = useMemo(() => outputPositions(centerX), [centerX]);
 
   useInstanced(inputPos, color, inputRef);
-  useInstanced(hiddenPos, color, hiddenRef);
-  useInstanced(outputPos, color, outputRef);
+  const brain = side === "brain";
+  useInstanced(hiddenPos, color, hiddenRef, brain ? 0 : null);
+  useInstanced(outputPos, color, outputRef, brain ? hiddenPos.length : null);
+  const brainGeo = useMemo(
+    () =>
+      brain
+        ? {
+            hidden: createNeuronGeometry(HIDDEN_RADIUS),
+            output: createNeuronGeometry(OUTPUT_RADIUS),
+            input: new THREE.SphereGeometry(INPUT_CUBE_SIZE * 0.6, 6, 3),
+          }
+        : null,
+    [brain],
+  );
+  useEffect(() => () => {
+    brainGeo?.hidden.dispose();
+    brainGeo?.output.dispose();
+    brainGeo?.input.dispose();
+  }, [brainGeo]);
 
   // Lesion hover: red highlight on the hovered hidden neuron (shared by both networks).
   useEffect(() => {
@@ -296,11 +316,25 @@ export function NetworkView({
 
     const inputRanges: number[][] = Array.from({ length: hiddenPos.length }, () => []);
     const outputRanges: number[][] = Array.from({ length: hiddenPos.length }, () => []);
-    const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, w: number) => {
-      verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
-      void w;
+    const segs = side === "brain" ? CURVE_SEGMENTS : 1;
+    const ctrl = new THREE.Vector3();
+    const p0 = new THREE.Vector3();
+    const p1 = new THREE.Vector3();
+    const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, seed: number) => {
       const c = positive;
-      colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      if (segs === 1) {
+        verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        return;
+      }
+      curveControl(a, b, seed, ctrl);
+      p0.copy(a);
+      for (let k = 1; k <= segs; k++) {
+        curvePoint(a, ctrl, b, k / segs, p1);
+        verts.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+        colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        p0.copy(p1);
+      }
     };
 
     // Input -> hidden: top 6 incoming weights per hidden neuron.
@@ -316,7 +350,7 @@ export function NetworkView({
         const weight = row[i];
         if (!input || weight === undefined) continue;
         inputRanges[h]!.push(inputVerts.length);
-        push(inputVerts, inputColors, input, hidden, weight);
+        push(inputVerts, inputColors, input, hidden, seedIn(i, h));
       }
     }
 
@@ -330,7 +364,7 @@ export function NetworkView({
         const weight = row[h];
         if (!hidden || weight === undefined) continue;
         outputRanges[h]!.push(outputVerts.length);
-        push(outputVerts, outputColors, hidden, output, weight);
+        push(outputVerts, outputColors, hidden, output, seedOut(h, o));
       }
     }
 
@@ -348,8 +382,9 @@ export function NetworkView({
       all: makeGeometry(allVerts, inputColors.concat(outputColors)),
       allOrig: new Float32Array(allVerts),
       ranges,
+      stride: segs * 6,
     };
-  }, [weights, color, inputPos, hiddenPos, outputPos]);
+  }, [side, weights, color, inputPos, hiddenPos, outputPos]);
 
   useEffect(() => () => {
     lineGeometries.all.dispose();
@@ -365,14 +400,16 @@ export function NetworkView({
     const scale = new THREE.Vector3();
     const pos = new THREE.Vector3();
     let prevSet = new Set<number>();
-    const collapse = (geo: THREE.BufferGeometry, orig: Float32Array, ranges: number[][], set: Set<number>) => {
+    const collapse = (geo: THREE.BufferGeometry, orig: Float32Array, ranges: number[][], set: Set<number>, stride: number) => {
       const arr = geo.attributes["position"]!.array as Float32Array;
       arr.set(orig);
       for (const h of set) {
         for (const o of ranges[h] ?? []) {
-          arr[o + 3] = arr[o]!;
-          arr[o + 4] = arr[o + 1]!;
-          arr[o + 5] = arr[o + 2]!;
+          for (let k = 3; k < stride; k += 3) {
+            arr[o + k] = arr[o]!;
+            arr[o + k + 1] = arr[o + 1]!;
+            arr[o + k + 2] = arr[o + 2]!;
+          }
         }
       }
       geo.attributes["position"]!.needsUpdate = true;
@@ -399,7 +436,7 @@ export function NetworkView({
         }
         xMesh.instanceMatrix.needsUpdate = true;
       }
-      collapse(lineGeometries.all, lineGeometries.allOrig, lineGeometries.ranges, set);
+      collapse(lineGeometries.all, lineGeometries.allOrig, lineGeometries.ranges, set, lineGeometries.stride);
       prevSet = set;
     };
     apply(useAppStore.getState().lesioned);
@@ -435,7 +472,11 @@ export function NetworkView({
         frustumCulled={false}
         renderOrder={1}
       >
-        <boxGeometry args={[INPUT_CUBE_SIZE, INPUT_CUBE_SIZE, INPUT_CUBE_SIZE]} />
+        {brainGeo ? (
+          <primitive object={brainGeo.input} attach="geometry" />
+        ) : (
+          <boxGeometry args={[INPUT_CUBE_SIZE, INPUT_CUBE_SIZE, INPUT_CUBE_SIZE]} />
+        )}
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
 
@@ -456,7 +497,11 @@ export function NetworkView({
         }}
         onPointerOut={() => useAppStore.getState().setHoverHidden(null)}
       >
-        <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
+        {brainGeo ? (
+          <primitive object={brainGeo.hidden} attach="geometry" />
+        ) : (
+          <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
+        )}
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
 
@@ -477,7 +522,11 @@ export function NetworkView({
         frustumCulled={false}
         renderOrder={1}
       >
-        <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
+        {brainGeo ? (
+          <primitive object={brainGeo.output} attach="geometry" />
+        ) : (
+          <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
+        )}
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
 
