@@ -28,14 +28,14 @@ function checkModel(url: string): Promise<boolean> {
 if (typeof window !== "undefined") [CHIP_URL, NEURON_URL, PEN_URL].forEach(checkModel);
 
 class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+  override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  componentDidCatch(err: unknown) {
+  override componentDidCatch(err: unknown) {
     console.warn("[models] failed to load model", err);
   }
-  render() {
+  override render() {
     return this.state.failed ? null : this.props.children;
   }
 }
