@@ -14,6 +14,7 @@ import {
 import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
+import { SpikingPlayback } from "./SpikingPlayback";
 
 export type NetworkSide = "ai" | "brain";
 
@@ -204,6 +205,19 @@ export function NetworkView({
     lineGeometries.output.dispose();
   }, [lineGeometries]);
 
+  // Drawn input->hidden connections, per input pixel.
+  const inputOut = useMemo(() => {
+    const out: number[][] = Array.from({ length: inputPos.length }, () => []);
+    for (let h = 0; h < weights.w1.length; h++) {
+      const row = weights.w1[h]!;
+      Array.from(row.keys())
+        .sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0))
+        .slice(0, TOP_INCOMING)
+        .forEach((i) => out[i]?.push(h));
+    }
+    return out;
+  }, [weights, inputPos.length]);
+
   const winnerPosition = aiResult ? outputPos[aiResult.prediction] : undefined;
 
   return (
@@ -284,6 +298,22 @@ export function NetworkView({
         </>
       )}
 
+      {side === "brain" && (
+        <SpikingPlayback
+          weights={weights}
+          color={color}
+          dim={DIM}
+          inputOff={INPUT_OFF}
+          inputRef={inputRef}
+          hiddenRef={hiddenRef}
+          outputRef={outputRef}
+          inputPos={inputPos}
+          hiddenPos={hiddenPos}
+          outputPos={outputPos}
+          inputOut={inputOut}
+          panelX={hidX}
+        />
+      )}
 
       <Text
         position={[hidX, 0.72, 0]}
