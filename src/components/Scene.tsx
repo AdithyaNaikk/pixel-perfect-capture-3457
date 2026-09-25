@@ -7,10 +7,13 @@ export const AI_COLOR = "#4fd1ff";
 export const BRAIN_COLOR = "#ff7a45";
 
 /** Midpoint between the two networks — used as the orbit target. */
-export const FOCUS: [number, number, number] = [0, 1.5, -2.5];
+export const FOCUS: [number, number, number] = [0, 1.5, -1.5];
 
 const SEPARATION = 1.6;
-const TILT = 0.18; // radians, angled slightly toward the user
+// Rotate each network 90° about Y so layers run left-right:
+// input layer on the outer side, output layer facing the centre.
+const AI_ROT: [number, number, number] = [0, -Math.PI / 2, 0];
+const BRAIN_ROT: [number, number, number] = [0, Math.PI / 2, 0];
 
 export function Scene({ weights }: { weights: Weights }) {
   return (
@@ -22,16 +25,16 @@ export function Scene({ weights }: { weights: Weights }) {
       <NetworkView
         side="ai"
         label="AI"
-        position={[-SEPARATION / 2, 1.5, -2.5]}
-        rotation={[0, TILT, 0]}
+        position={[-SEPARATION / 2, 1.5, -1.5]}
+        rotation={AI_ROT}
         weights={weights}
         color={AI_COLOR}
       />
       <NetworkView
         side="brain"
         label="BRAIN"
-        position={[SEPARATION / 2, 1.5, -2.5]}
-        rotation={[0, -TILT, 0]}
+        position={[SEPARATION / 2, 1.5, -1.5]}
+        rotation={BRAIN_ROT}
         weights={weights}
         color={BRAIN_COLOR}
       />
