@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 /** Geometry constants shared by layout and rendering. */
 export const INPUT_GRID = 28;
-export const INPUT_CUBE_SIZE = 0.012;
+export const INPUT_CUBE_SIZE = 0.016;
 export const INPUT_SPACING = 0.018;
 
 export const HIDDEN_GRID = 8;

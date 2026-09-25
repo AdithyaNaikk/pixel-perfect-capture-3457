@@ -14,18 +14,27 @@ const SCENE_HALF_H = 1.0;
 const MIN_DIST = 4.7; // camera z = 2.2 when the scene fits
 
 /** Pulls the desktop camera back until both input grids fit the viewport. */
-function CameraFit() {
+function CameraFit({ panelExpanded }: { panelExpanded: boolean }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
   useEffect(() => {
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const aspect = width / Math.max(height, 1);
-    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * aspect), SCENE_HALF_H / tanV);
+    const reservedHeight = panelExpanded ? Math.min(258, height * 0.46) : 0;
+    const availableHeight = Math.max(height - reservedHeight, 1);
+    const viewportAspect = width / Math.max(height, 1);
+    const verticalFit = (SCENE_HALF_H / tanV) * (height / availableHeight);
+    const dist = Math.max(MIN_DIST, SCENE_HALF_W / (tanV * viewportAspect), verticalFit);
     camera.position.set(FOCUS[0], FOCUS[1], FOCUS[2] + dist);
     camera.lookAt(...FOCUS);
+    if (panelExpanded) {
+      camera.setViewOffset(width, height, 0, reservedHeight / 2, width, height);
+    } else {
+      camera.clearViewOffset();
+    }
     camera.updateProjectionMatrix();
-  }, [camera, width, height]);
+    return () => camera.clearViewOffset();
+  }, [camera, width, height, panelExpanded]);
   return null;
 }
 
@@ -33,6 +42,7 @@ export function XRApp() {
   const store = useMemo(() => createXRStore(), []);
   const [weights, setWeights] = useState<Weights | null>(null);
   const [vrSupported, setVrSupported] = useState<boolean | null>(null);
+  const [drawingExpanded, setDrawingExpanded] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -69,7 +79,7 @@ export function XRApp() {
         <XR store={store}>
           <color attach="background" args={["#05060a"]} />
           <fog attach="fog" args={["#05060a", 3, 14]} />
-          <CameraFit />
+          <CameraFit panelExpanded={drawingExpanded} />
           {weights && <Scene weights={weights} />}
           <OrbitControls target={FOCUS} enablePan={false} makeDefault />
         </XR>
@@ -91,7 +101,7 @@ export function XRApp() {
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
       </div>
-      <DrawingPanel />
+       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
     </div>
   );
 }

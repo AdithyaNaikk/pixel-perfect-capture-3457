@@ -18,6 +18,7 @@ export type NetworkSide = "ai" | "brain";
 export interface NetworkViewProps {
   side: NetworkSide;
   label: string;
+  subtitle: string;
   position: [number, number, number];
   /** Local X of input, hidden and output layers. */
   layerX: [number, number, number];
@@ -28,6 +29,7 @@ export interface NetworkViewProps {
 const TOP_INCOMING = 6;
 const NEGATIVE_COLOR = new THREE.Color("#5b6b86");
 const DIM = 0.22;
+const INPUT_OFF = 0.015;
 
 /** Sets instance matrices once and installs an instanceColor buffer. */
 function useInstanced(
@@ -54,6 +56,7 @@ function useInstanced(
 export function NetworkView({
   side,
   label,
+  subtitle,
   position,
   layerX,
   weights,
@@ -75,7 +78,7 @@ export function NetworkView({
   // Input cube brightness follows the preprocessed image (no React re-render).
   useEffect(() => {
     const full = new THREE.Color(color);
-    const base = full.clone().multiplyScalar(DIM);
+    const base = full.clone().multiplyScalar(INPUT_OFF);
     const tmp = new THREE.Color();
     const apply = (img: Float32Array | null) => {
       const mesh = inputRef.current;
@@ -92,13 +95,14 @@ export function NetworkView({
     });
   }, [color, inputPos]);
 
-  // One LineSegments geometry for the whole network.
-  const lineGeometry = useMemo(() => {
+  const lineGeometries = useMemo(() => {
     const positive = new THREE.Color(color);
-    const verts: number[] = [];
-    const colors: number[] = [];
+    const inputVerts: number[] = [];
+    const inputColors: number[] = [];
+    const outputVerts: number[] = [];
+    const outputColors: number[] = [];
 
-    const push = (a: THREE.Vector3, b: THREE.Vector3, w: number) => {
+    const push = (verts: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, w: number) => {
       verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
       const c = w >= 0 ? positive : NEGATIVE_COLOR;
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
@@ -110,28 +114,40 @@ export function NetworkView({
       const idx = Array.from(row.keys())
         .sort((a, b) => Math.abs(row[b]!) - Math.abs(row[a]!))
         .slice(0, TOP_INCOMING);
-      for (const i of idx) push(inputPos[i]!, hiddenPos[h]!, row[i]!);
+       for (const i of idx) push(inputVerts, inputColors, inputPos[i]!, hiddenPos[h]!, row[i]!);
     }
 
     // Hidden -> output: all connections.
     for (let o = 0; o < weights.w2.length; o++) {
       const row = weights.w2[o]!;
       for (let h = 0; h < row.length; h++) {
-        push(hiddenPos[h]!, outputPos[o]!, row[h]!);
+         push(outputVerts, outputColors, hiddenPos[h]!, outputPos[o]!, row[h]!);
       }
     }
 
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-    geom.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    return geom;
+    const makeGeometry = (verts: number[], colors: number[]) => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+      geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+      return geometry;
+    };
+    return {
+      input: makeGeometry(inputVerts, inputColors),
+      output: makeGeometry(outputVerts, outputColors),
+    };
   }, [weights, color, inputPos, hiddenPos, outputPos]);
 
-  useEffect(() => () => lineGeometry.dispose(), [lineGeometry]);
+  useEffect(() => () => {
+    lineGeometries.input.dispose();
+    lineGeometries.output.dispose();
+  }, [lineGeometries]);
 
   return (
     <group position={position} name={`network-${side}`}>
-      <lineSegments geometry={lineGeometry} frustumCulled={false}>
+      <lineSegments geometry={lineGeometries.input} frustumCulled={false} renderOrder={-1}>
+        <lineBasicMaterial vertexColors transparent opacity={0.04} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={lineGeometries.output} frustumCulled={false} renderOrder={-1}>
         <lineBasicMaterial vertexColors transparent opacity={0.08} depthWrite={false} />
       </lineSegments>
 
@@ -139,19 +155,17 @@ export function NetworkView({
         ref={inputRef}
         args={[undefined, undefined, inputPos.length]}
         frustumCulled={false}
+        renderOrder={1}
       >
         <boxGeometry args={[INPUT_CUBE_SIZE, INPUT_CUBE_SIZE, INPUT_CUBE_SIZE]} />
-        <meshStandardMaterial
-          toneMapped={false}
-          emissive={color}
-          emissiveIntensity={0.25}
-        />
+        <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
 
       <instancedMesh
         ref={hiddenRef}
         args={[undefined, undefined, hiddenPos.length]}
         frustumCulled={false}
+        renderOrder={1}
       >
         <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
         <meshStandardMaterial
@@ -165,6 +179,7 @@ export function NetworkView({
         ref={outputRef}
         args={[undefined, undefined, outputPos.length]}
         frustumCulled={false}
+        renderOrder={1}
       >
         <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
         <meshStandardMaterial
@@ -183,6 +198,15 @@ export function NetworkView({
         anchorY="middle"
       >
         {label}
+      </Text>
+      <Text
+        position={[hidX, 0.58, 0]}
+        fontSize={0.055}
+        color={color}
+        anchorX="center"
+        anchorY="middle"
+      >
+        {subtitle}
       </Text>
     </group>
   );
