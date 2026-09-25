@@ -107,8 +107,7 @@ function VRDrawingInner() {
     if (x && !prevX.current) useAppStore.getState().toggleLesionMode();
     prevX.current = x;
     if (!controller) return;
-    const trigger =
-      !useAppStore.getState().lesionMode && pressed(controller.gamepad["xr-standard-trigger"]);
+    const trigger = pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
     const b = pressed(controller.gamepad["b-button"]);
     const h = hit.current;
@@ -188,9 +187,6 @@ function VRDrawingInner() {
       />
       <Text position={[0.1, -h - 0.135, 0]} fontSize={0.022} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
         {`Lesioned: ${lesionedCount} / 64`}
-      </Text>
-      <Text position={[0, -h - 0.17, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
-        Trigger: draw · A: Submit · B: Clear · X: lesion mode
       </Text>
       <group position={[h + 0.12, 0, 0]}>
         <mesh>

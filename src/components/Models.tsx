@@ -111,8 +111,8 @@ export function SceneModels() {
       <ChipSway>
         <SafeModel url={CHIP_URL} size={1} faceZ fallback={<ChipPlaceholder />} />
       </ChipSway>
-      <group position={[1.9, 2.8, -4.6]}>
-        <SafeModel url={NEURON_URL} size={1} fallback={<NeuronPlaceholder />} />
+      <group position={[2.0, 2.3, -4.65]}>
+        <SafeModel url={NEURON_URL} size={1.25} fallback={<NeuronPlaceholder />} />
       </group>
       <group position={[3.65, 2.65, -4.6]}>
         <SafeModel url={BRAIN_URL} size={1.15} />
