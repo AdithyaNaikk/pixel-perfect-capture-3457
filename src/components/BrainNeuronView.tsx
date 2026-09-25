@@ -65,7 +65,7 @@ export function BrainNeuronView({ weights, centerX }: { weights: Weights; center
   const uniforms = useMemo(() => createPulseUniforms(), []);
   const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const ipsMat = useMemo(
-    () => new THREE.MeshBasicMaterial({ color: "#ffe066", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+    () => new THREE.MeshBasicMaterial({ color: "#ffe066", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }),
     [],
   );
   useEffect(() => () => ipsMat.dispose(), [ipsMat]);
@@ -385,7 +385,7 @@ function SimpleBrain({ ipsMat }: { ipsMat: THREE.Material }) {
       {[-1, 1].map((sd) => (
         <group key={sd} position={[sd * OFF, 0, 0]}>
           <mesh geometry={geo} material={mat} renderOrder={8} raycast={() => null} />
-          <mesh geometry={ips[sd < 0 ? 0 : 1]} material={ipsMat} renderOrder={9} raycast={() => null} />
+          <mesh geometry={ips[sd < 0 ? 0 : 1]!} material={ipsMat} renderOrder={9} raycast={() => null} />
         </group>
       ))}
     </group>
