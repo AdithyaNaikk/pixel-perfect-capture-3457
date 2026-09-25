@@ -34,7 +34,7 @@ export function useGuidanceText(): string {
 export function Guidance3D() {
   const text = useGuidanceText();
   return (
-    <group position={[0, 2.3, -2.5]}>
+    <group position={[0, 2.62, -2.5]}>
       <mesh position={[0, 0, -0.02]} renderOrder={1}>
         <planeGeometry args={[3.4, 0.52]} />
         <meshBasicMaterial color="#05060a" transparent opacity={0.6} depthWrite={false} />
