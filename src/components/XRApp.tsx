@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
+import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
 
 /** Half-width of the whole scene (input grid edge at x = 2.4 + margin). */
@@ -101,7 +102,43 @@ export function XRApp() {
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
       </div>
-       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
+      <PlaybackControls />
+      <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
+    </div>
+  );
+}
+
+function PlaybackControls() {
+  const runId = useAppStore((s) => s.runId);
+  const speed = useAppStore((s) => s.speed);
+  const replay = useAppStore((s) => s.replay);
+  const setSpeed = useAppStore((s) => s.setSpeed);
+  if (runId === 0) return null;
+  const options: { label: string; value: PlaybackSpeed }[] = [
+    { label: "Pause", value: 0 },
+    { label: "0.25x", value: 0.25 },
+    { label: "1x", value: 1 },
+  ];
+  return (
+    <div className="fixed left-5 top-12 flex items-center gap-2 font-mono text-xs">
+      <button
+        onClick={replay}
+        className="rounded-full border border-orange-300/40 bg-orange-300/10 px-3 py-1 text-orange-200 hover:bg-orange-300/20"
+      >
+        Replay
+      </button>
+      <div className="flex overflow-hidden rounded-full border border-orange-300/30" role="group" aria-label="Playback speed">
+        {options.map((o) => (
+          <button
+            key={o.label}
+            onClick={() => setSpeed(o.value)}
+            aria-pressed={speed === o.value}
+            className={`px-2.5 py-1 ${speed === o.value ? "bg-orange-300/25 text-orange-100" : "text-orange-200/70 hover:bg-orange-300/10"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
