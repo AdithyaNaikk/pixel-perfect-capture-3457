@@ -3,318 +3,451 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-import { BrainEye } from "./BrainEye";
-import { createNeuronGeometry, EYE_Y, eyeRetinaPositions } from "@/lib/brainGeometry";
-import { INPUT_CUBE_SIZE, INACTIVE_COLOR, SPIKE_COLOR } from "@/lib/layout";
+import { BRAIN_MODEL_POS, NEURON_URL, NeuronPlaceholder, SafeModel } from "./Models";
+import {
+  AXON_GUIDE,
+  DENDRITE_GUIDES,
+  HILLOCK_POINT,
+  IPS_PATCHES,
+  NEURON_SCALE,
+  NEURON_SIZE,
+  SOMA_POINT,
+  TERMINAL_POINTS,
+  axonCurve,
+  dendriteCurves,
+} from "@/lib/brainGuides";
+import { SPIKE_COLOR } from "@/lib/layout";
 import { simulate, SNN_T, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";
 
 const STEP_MS = 50;
-const MAX_PULSES = 40;
-const SOMA: [number, number, number] = [2.4, 1.55, -2.35];
-const HEAD: [number, number, number] = [2.4, 1.35, -4.25];
-const REST = new THREE.Color("#34345c");
-const CHARGED = new THREE.Color("#d987d1");
-const FIRE = new THREE.Color("#fff4a8");
+const MAX_PULSES = 150;
+const PULSE_STEPS = 3;
+const AXON_STEPS = 3;
+const AXON_NODES = 6;
+const PARTICLES = 20;
+const END = SNN_T + AXON_STEPS + 1;
 const WARM = new THREE.Color(SPIKE_COLOR);
-const COOL = new THREE.Color("#66baff");
+const COOL = new THREE.Color("#5aa8ff");
+const FIRE = new THREE.Color("#fff4b0");
+const SOMA_GLOW = new THREE.Color("#ff7fd4");
+const LESION = new THREE.Color("#3a3a40");
 const BAR_IDLE = new THREE.Color("#76516f");
-const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
-const RECEPTOR_IDLE = new THREE.Color(INACTIVE_COLOR);
+const SCOPE_W = 1.1;
+const SCOPE_H = 0.32;
 
 interface Status {
   step: number;
-  fired: number;
-  revealed: boolean;
+  done: boolean;
 }
 
-interface PulseEvent {
-  step: number;
-  dendrite: number;
-  weight: number;
+interface Runs {
+  damaged: SnnResult;
+  healthy: SnnResult;
+  /** Output neuron shown: the healthy network's answer. */
+  shown: number;
+  lesioned: Set<number>;
 }
 
-function dendritePoint(index: number, t: number, out: THREE.Vector3) {
-  const angle = (index / 6) * Math.PI * 2 + 0.25;
-  const startX = SOMA[0] + Math.cos(angle) * 0.72;
-  const startY = SOMA[1] + Math.sin(angle) * 0.6;
-  const startZ = SOMA[2] + 0.85;
-  const u = 1 - t;
-  return out.set(
-    u * u * startX + 2 * u * t * (SOMA[0] + Math.cos(angle) * 0.38) + t * t * SOMA[0],
-    u * u * startY + 2 * u * t * (SOMA[1] + Math.sin(angle) * 0.3) + t * t * SOMA[1],
-    u * u * startZ + 2 * u * t * (SOMA[2] + 0.38) + t * t * SOMA[2],
-  );
+function glowTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.35, "rgba(255,255,255,0.45)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
 }
 
-function axonPoint(t: number, out: THREE.Vector3) {
-  const u = 1 - t;
-  return out.set(
-    SOMA[0] + Math.sin(t * Math.PI) * 0.08,
-    u * SOMA[1] + t * (HEAD[1] + 0.18),
-    u * SOMA[2] + t * HEAD[2],
-  );
+function glowMat(tex: THREE.Texture, color: THREE.Color, opacity = 1) {
+  return new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 }
 
 export function BrainNeuronView({ weights, centerX }: { weights: Weights; centerX: number }) {
   const runId = useAppStore((s) => s.runId);
   const replayId = useAppStore((s) => s.replayId);
-  const [result, setResult] = useState<SnnResult | null>(null);
+  const debug = useAppStore((s) => s.debugGuides);
+  const [runs, setRuns] = useState<Runs | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const clock = useRef<number | null>(null);
-  const somaRef = useRef<THREE.Mesh>(null);
-  const receptorRef = useRef<THREE.InstancedMesh>(null);
-  const haloRef = useRef<THREE.Mesh>(null);
-  const pulseRef = useRef<THREE.InstancedMesh>(null);
-  const axonPulseRef = useRef<THREE.Mesh>(null);
-  const barRefs = useRef<(THREE.Mesh | null)[]>([]);
   const lastStep = useRef(-1);
-  const neuronGeometry = useMemo(() => createNeuronGeometry(0.22), []);
-  const receptorPositions = useMemo(() => eyeRetinaPositions(centerX), [centerX]);
-  const pulseEvents = useMemo<PulseEvent[]>(() => {
-    if (!result) return [];
-    const out: PulseEvent[] = [];
-    const winner = result.prediction;
-    const row = weights.w2[winner];
-    if (!row) return out;
-    for (let step = 0; step < result.hiddenSpikes.length; step++) {
-      const spikes = result.hiddenSpikes[step];
-      if (!spikes) continue;
-      for (const hidden of spikes) {
-        const weight = row[hidden] ?? 0;
-        if (weight !== 0) out.push({ step, dendrite: hidden % 6, weight });
-      }
-    }
-    return out;
-  }, [result, weights]);
-  const maxWeight = useMemo(() => {
-    let max = 0;
-    for (const pulse of pulseEvents) max = Math.max(max, Math.abs(pulse.weight));
-    return max || 1;
-  }, [pulseEvents]);
-  const tmp = useMemo(() => ({
-    color: new THREE.Color(),
-    matrix: new THREE.Matrix4(),
-    position: new THREE.Vector3(),
-    scale: new THREE.Vector3(),
-    quaternion: new THREE.Quaternion(),
-  }), []);
 
-  useEffect(() => () => neuronGeometry.dispose(), [neuronGeometry]);
+  const tex = useMemo(() => glowTexture(), []);
+  const dCurves = useMemo(() => dendriteCurves(), []);
+  const aCurve = useMemo(() => axonCurve(), []);
+  const mats = useMemo(
+    () => ({
+      soma: glowMat(tex, SOMA_GLOW, 0.4),
+      hillock: glowMat(tex, FIRE, 0),
+      terminal: glowMat(tex, FIRE, 0),
+      axon: glowMat(tex, FIRE, 1),
+      pulses: new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      particles: glowMat(tex, FIRE, 1),
+      ips: new THREE.MeshBasicMaterial({ color: WARM, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+    }),
+    [tex],
+  );
+  useEffect(() => () => { tex.dispose(); Object.values(mats).forEach((m) => m.dispose()); }, [tex, mats]);
 
-  useEffect(() => {
-    const mesh = receptorRef.current;
-    if (!mesh) return;
-    const matrix = new THREE.Matrix4();
-    for (let i = 0; i < receptorPositions.length; i++) {
-      const position = receptorPositions[i];
-      if (!position) continue;
-      matrix.makeTranslation(position.x, position.y, position.z);
-      mesh.setMatrixAt(i, matrix);
-      mesh.setColorAt(i, RECEPTOR_IDLE);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [receptorPositions]);
+  const somaRef = useRef<THREE.Mesh>(null);
+  const hillockRef = useRef<THREE.Mesh>(null);
+  const terminalRef = useRef<THREE.Mesh>(null);
+  const axonRef = useRef<THREE.Mesh>(null);
+  const pulseRef = useRef<THREE.InstancedMesh>(null);
+  const particleRef = useRef<THREE.InstancedMesh>(null);
+  const pathwayRef = useRef<THREE.InstancedMesh>(null);
+  const barRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const scopeLine = useRef<THREE.Line>(null);
+  const scopeSpikes = useRef<THREE.LineSegments>(null);
 
+  // Pathway entry for each of the 64 hidden neurons: dendrite and start position along it.
+  const pathways = useMemo(
+    () => Array.from({ length: 64 }, (_, h) => ({ d: h % DENDRITE_GUIDES.length, t0: 0.05 + (Math.floor(h / DENDRITE_GUIDES.length) / 8) * 0.6 })),
+    [],
+  );
+  const pathwayPos = useMemo(() => pathways.map((p) => dCurves[p.d]!.getPoint(p.t0)), [pathways, dCurves]);
+  const axonNodes = useMemo(() => Array.from({ length: AXON_NODES }, (_, i) => aCurve.getPoint(i / (AXON_NODES - 1))), [aCurve]);
+
+  const tmp = useMemo(() => ({ m: new THREE.Matrix4(), v: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(), c: new THREE.Color() }), []);
+
+  // Run both simulations (with the shared lesion mask, and healthy) whenever a run starts.
   useEffect(() => {
     const image = useAppStore.getState().inputImage;
     if (runId === 0 || !image) return;
-    setResult(simulate(image, weights, useAppStore.getState().lesioned));
+    const lesioned = new Set(useAppStore.getState().lesioned);
+    const damaged = simulate(image, weights, lesioned);
+    const healthy = lesioned.size > 0 ? simulate(image, weights, new Set()) : damaged;
+    setRuns({ damaged, healthy, shown: healthy.noAnswer ? damaged.prediction : healthy.prediction, lesioned });
     useAppStore.getState().setSpiking({ done: false, prediction: null });
   }, [runId, weights]);
 
+  // Oscilloscope geometry (static per run; revealed with drawRange).
+  const scope = useMemo(() => {
+    const line = new THREE.BufferGeometry();
+    const spikes = new THREE.BufferGeometry();
+    const threshold = weights.snn?.threshold ?? 1;
+    const pos = new Float32Array(SNN_T * 3);
+    const sp: number[] = [];
+    const spikeStep: number[] = [];
+    const y = (v: number) => (Math.max(-0.3, Math.min(1.2, v / threshold)) / 1.2) * SCOPE_H;
+    if (runs) {
+      for (let t = 0; t < SNN_T; t++) {
+        const x = (t / (SNN_T - 1)) * SCOPE_W - SCOPE_W / 2;
+        pos[t * 3] = x;
+        pos[t * 3 + 1] = y(runs.damaged.outputPotentials[t]?.[runs.shown] ?? 0);
+        if (runs.damaged.outputSpikes[t]?.includes(runs.shown)) {
+          sp.push(x, 0, 0.002, x, SCOPE_H * 1.05, 0.002);
+          spikeStep.push(t);
+        }
+      }
+    }
+    line.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    line.setDrawRange(0, 0);
+    spikes.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
+    spikes.setDrawRange(0, 0);
+    return { line, spikes, spikeStep, thresholdY: y(threshold) };
+  }, [runs, weights]);
+  useEffect(() => () => { scope.line.dispose(); scope.spikes.dispose(); }, [scope]);
+
   useEffect(() => {
-    if (!result) return;
+    if (!runs) return;
     clock.current = 0;
     lastStep.current = -1;
-    setStatus({ step: 0, fired: 0, revealed: false });
-  }, [result, replayId]);
+    setStatus({ step: 0, done: false });
+  }, [runs, replayId]);
 
-  useFrame((_, rawDelta) => {
-    const res = result;
+  // Pathway markers: warm/cool by weight sign, grey when lesioned or unconnected.
+  useEffect(() => {
+    const mesh = pathwayRef.current;
+    if (!mesh) return;
+    const row = runs ? weights.w2[runs.shown] : undefined;
+    for (let h = 0; h < 64; h++) {
+      const p = pathwayPos[h]!;
+      tmp.m.makeTranslation(p.x, p.y, 0.02);
+      mesh.setMatrixAt(h, tmp.m);
+      const w = row?.[h] ?? 0;
+      if (runs?.lesioned.has(h) || !row || w === 0) tmp.c.copy(LESION);
+      else tmp.c.copy(w > 0 ? WARM : COOL).multiplyScalar(0.55);
+      mesh.setColorAt(h, tmp.c);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [runs, weights, pathwayPos, tmp]);
+
+  useFrame(({ clock: time }, rawDelta) => {
     const soma = somaRef.current;
-    const halo = haloRef.current;
     const pulses = pulseRef.current;
-    const axonPulse = axonPulseRef.current;
-    if (!res || clock.current === null || !soma || !halo || !pulses || !axonPulse) return;
-    const speed = useAppStore.getState().speed;
-    const p = Math.min(clock.current + ((Math.min(rawDelta, 0.05) * 1000) / STEP_MS) * speed, SNN_T + 2.4);
-    clock.current = p;
+    if (!runs || !soma || !pulses) return;
+    const res = runs.damaged;
+    const shown = runs.shown;
+    let p = clock.current ?? END;
+    if (clock.current !== null) {
+      const speed = useAppStore.getState().speed;
+      p = Math.min(clock.current + ((Math.min(rawDelta, 0.05) * 1000) / STEP_MS) * speed, END);
+      clock.current = p;
+    }
     const cur = Math.min(Math.floor(p), SNN_T - 1);
-    const winner = res.prediction;
-    const potentials = res.outputPotentials[cur];
+    const frac = Math.min(1, p - Math.floor(p));
     const threshold = weights.snn?.threshold ?? 1;
-    const charge = Math.max(0, Math.min(1, (potentials?.[winner] ?? 0) / threshold));
+    const done = p >= SNN_T;
+
+    // Most recent spike of the shown neuron.
     let spikeAge = 99;
-    for (let t = Math.max(0, cur - 3); t <= cur; t++) {
-      if (res.outputSpikes[t]?.includes(winner)) spikeAge = Math.min(spikeAge, p - t);
-    }
-    const flash = Math.max(0, 1 - spikeAge / 2.4);
-    const material = soma.material as THREE.MeshBasicMaterial;
-    material.color.copy(REST).lerp(CHARGED, charge).lerp(FIRE, flash);
+    for (let t = Math.max(0, cur - 8); t <= cur; t++) if (res.outputSpikes[t]?.includes(shown)) spikeAge = p - t;
 
-    const receptors = receptorRef.current;
-    const image = useAppStore.getState().inputImage;
-    if (receptors) {
-      for (let input = 0; input < receptorPositions.length; input++) {
-        const spiked = res.inputSpikes[cur]?.includes(input) ?? false;
-        tmp.color.copy(RECEPTOR_IDLE).lerp(RECEPTOR_BRIGHT, image?.[input] ?? 0);
-        if (spiked) tmp.color.copy(WARM);
-        receptors.setColorAt(input, tmp.color);
+    // Soma glow follows the membrane potential (leaks between pulses), flashes on spikes, dips after.
+    const vPrev = cur > 0 ? (res.outputPotentials[cur - 1]?.[shown] ?? 0) : 0;
+    const vNow = res.outputPotentials[cur]?.[shown] ?? 0;
+    const v = (vPrev + (vNow - vPrev) * frac) / threshold;
+    const flash = Math.max(0, 1 - spikeAge / 1.5);
+    const refractory = spikeAge > 1.5 && spikeAge < 4 ? 1 - (spikeAge - 1.5) / 2.5 : 0;
+    const rest = 0.35;
+    const bright = Math.max(0.05, rest + Math.max(-0.5, Math.min(1, v)) * 0.55 - refractory * 0.22 + flash);
+    mats.soma.opacity = Math.min(1, bright);
+    mats.soma.color.copy(SOMA_GLOW).lerp(FIRE, flash);
+    soma.scale.setScalar(0.34 + Math.max(0, v) * 0.08 + flash * 0.22);
+    mats.hillock.opacity = Math.max(0, 1 - spikeAge / 0.8);
+
+    // Axon: pulse jumps node to node (saltatory), terminals flash with particles.
+    const axon = axonRef.current;
+    if (axon) {
+      const k = spikeAge / AXON_STEPS;
+      axon.visible = k >= 0 && k < 1;
+      if (axon.visible) axon.position.copy(axonNodes[Math.min(AXON_NODES - 1, Math.floor(k * AXON_NODES))]!);
+    }
+    const termAge = spikeAge - AXON_STEPS;
+    mats.terminal.opacity = termAge >= 0 ? Math.max(0, 1 - termAge / 1.5) : 0;
+    const particles = particleRef.current;
+    if (particles) {
+      let n = 0;
+      if (termAge >= 0 && termAge < 1.5) {
+        const r = termAge * 0.06;
+        for (let i = 0; i < PARTICLES; i++) {
+          const tp = TERMINAL_POINTS[i % TERMINAL_POINTS.length]!;
+          const a = i * 2.39996;
+          tmp.m.makeScale(0.03, 0.03, 0.03).setPosition(tp[0] + Math.cos(a) * r, tp[1] + Math.sin(a) * r, 0.03);
+          particles.setMatrixAt(n++, tmp.m);
+        }
       }
-      if (receptors.instanceColor) receptors.instanceColor.needsUpdate = true;
+      particles.count = n;
+      particles.instanceMatrix.needsUpdate = true;
     }
-    const somaScale = 1 + flash * 0.28;
-    soma.scale.setScalar(somaScale);
-    halo.visible = flash > 0.01;
-    halo.scale.setScalar(1.15 + flash * 0.6);
-    (halo.material as THREE.MeshBasicMaterial).opacity = flash * 0.35;
 
-    let count = 0;
-    for (let i = pulseEvents.length - 1; i >= 0 && count < MAX_PULSES; i--) {
-      const event = pulseEvents[i];
-      if (!event) continue;
-      const age = p - event.step;
-      if (age < 0 || age > 2) continue;
-      dendritePoint(event.dendrite, age / 2, tmp.position);
-      const size = 0.018 + 0.035 * Math.min(1, Math.abs(event.weight) / maxWeight);
-      tmp.scale.setScalar(size);
-      tmp.matrix.compose(tmp.position, tmp.quaternion, tmp.scale);
-      pulses.setMatrixAt(count, tmp.matrix);
-      pulses.setColorAt(count, event.weight > 0 ? WARM : COOL);
-      count++;
+    // Dendrite pulses from real hidden spikes weighted into the shown neuron.
+    const row = weights.w2[shown]!;
+    let maxW = 1e-6;
+    for (const w of row) maxW = Math.max(maxW, Math.abs(w));
+    let n = 0;
+    for (let t = Math.min(cur, Math.floor(p)); t >= 0 && t > p - PULSE_STEPS - 1 && n < MAX_PULSES; t--) {
+      const age = p - t;
+      if (age < 0 || age > PULSE_STEPS) continue;
+      for (const h of res.hiddenSpikes[t] ?? []) {
+        if (n >= MAX_PULSES) break;
+        const w = row[h] ?? 0;
+        if (w === 0 || runs.lesioned.has(h)) continue;
+        const pw = pathways[h]!;
+        dCurves[pw.d]!.getPoint(pw.t0 + (1 - pw.t0) * (age / PULSE_STEPS), tmp.v);
+        const size = 0.04 + 0.07 * (Math.abs(w) / maxW);
+        tmp.s.set(size, size, size);
+        tmp.v.z = 0.04;
+        tmp.m.compose(tmp.v, tmp.q, tmp.s);
+        pulses.setMatrixAt(n, tmp.m);
+        pulses.setColorAt(n, w > 0 ? WARM : COOL);
+        n++;
+      }
     }
-    pulses.count = count;
+    pulses.count = n;
     pulses.instanceMatrix.needsUpdate = true;
     if (pulses.instanceColor) pulses.instanceColor.needsUpdate = true;
 
-    if (spikeAge >= 0 && spikeAge <= 2.4) {
-      axonPulse.visible = true;
-      axonPoint(Math.min(1, spikeAge / 2.4), axonPulse.position);
-      axonPulse.scale.setScalar(0.05 + flash * 0.025);
-    } else axonPulse.visible = false;
+    // Oscilloscope.
+    scope.line.setDrawRange(0, done ? SNN_T : cur + 1);
+    let sc = 0;
+    while (sc < scope.spikeStep.length && scope.spikeStep[sc]! <= cur) sc++;
+    scope.spikes.setDrawRange(0, sc * 2);
 
+    // Bars: live counts; winner highlighted only once the brain has decided (end of playback).
     const counts = res.counts[cur];
-    const finalCounts = res.counts[SNN_T - 1];
     let maxFinal = 1;
-    if (finalCounts) for (const value of finalCounts) maxFinal = Math.max(maxFinal, value);
-    for (let output = 0; output < 10; output++) {
-      const bar = barRefs.current[output];
+    for (const c of res.counts[SNN_T - 1] ?? []) maxFinal = Math.max(maxFinal, c);
+    for (let o = 0; o < 10; o++) {
+      const bar = barRefs.current[o];
       if (!bar) continue;
-      const height = Math.max(0.004, ((counts?.[output] ?? 0) / maxFinal) * 0.52);
-      bar.scale.y = height;
-      bar.position.y = 0.2 + height / 2;
-      const revealed = !res.noAnswer && cur + 1 >= res.decisionStep;
-      (bar.material as THREE.MeshBasicMaterial).color.copy(revealed && output === winner ? WARM : BAR_IDLE);
+      const h = Math.max(0.004, ((counts?.[o] ?? 0) / maxFinal) * 0.5);
+      bar.scale.y = h;
+      bar.position.y = h / 2;
+      (bar.material as THREE.MeshBasicMaterial).color.copy(done && !res.noAnswer && o === res.prediction ? WARM : BAR_IDLE);
     }
 
-    const revealed = !res.noAnswer && cur + 1 >= res.decisionStep;
-    if (cur !== lastStep.current) {
+    // IPS patches flash with each spike and stay softly lit once revealed.
+    mats.ips.opacity = (debug ? 0.35 : 0) + Math.max(done ? 0.35 + Math.sin(time.elapsedTime * 2) * 0.05 : 0.05, flash * 0.9);
+
+    if (cur !== lastStep.current || (done && !status?.done)) {
       lastStep.current = cur;
-      setStatus({ step: cur + 1, fired: counts?.[winner] ?? 0, revealed });
+      setStatus({ step: cur + 1, done });
     }
-    if (p >= SNN_T + 2.4) {
+    if (clock.current !== null && p >= END) {
       clock.current = null;
-      useAppStore.getState().setSpiking({ done: true, prediction: res.noAnswer ? null : winner });
+      useAppStore.getState().setSpiking({ done: true, prediction: res.noAnswer ? null : res.prediction });
     }
   });
 
-  const answer = !result || !status ? "..." : result.noAnswer && status.step >= SNN_T ? "No answer" : status.revealed ? String(result.prediction) : "...";
-  const confidence = result ? `${Math.round(result.confidence * 100)}% confidence` : "";
+  const res = runs?.damaged;
+  const done = !!status?.done;
+  const answer = !res || !done ? "..." : res.noAnswer ? "?" : String(res.prediction);
+  const healthySpikes = runs ? (runs.healthy.counts[SNN_T - 1]?.[runs.shown] ?? 0) : 0;
+  const damagedSpikes = runs ? (runs.damaged.counts[SNN_T - 1]?.[runs.shown] ?? 0) : 0;
+  const liveSpikes = runs && status ? (runs.damaged.counts[Math.max(0, status.step - 1)]?.[runs.shown] ?? 0) : 0;
+
+  const NEURON_POS: [number, number, number] = [centerX, 1.62, -2.2];
+  const HEAD: [number, number, number] = [centerX + 1.2, 0.55, -2.2];
 
   return (
     <group name="brain-single-neuron">
-      <BrainEye cx={centerX} />
-      <instancedMesh ref={receptorRef} args={[undefined, undefined, receptorPositions.length]} frustumCulled={false} renderOrder={1} raycast={() => null}>
-        <icosahedronGeometry args={[INPUT_CUBE_SIZE * 0.42, 0]} />
-        <meshBasicMaterial toneMapped={false} />
-      </instancedMesh>
-      <OpticBundle />
-      <mesh ref={somaRef} geometry={neuronGeometry} position={SOMA} rotation={[0, 0, 0]} renderOrder={1}>
-        <meshBasicMaterial color={REST} toneMapped={false} />
-      </mesh>
-      <Axon />
-      <mesh ref={haloRef} position={SOMA} visible={false} raycast={() => null} renderOrder={2}>
-        <sphereGeometry args={[0.31, 12, 8]} />
-        <meshBasicMaterial color={FIRE} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
-      </mesh>
-      <instancedMesh ref={pulseRef} args={[undefined, undefined, MAX_PULSES]} frustumCulled={false} renderOrder={3} raycast={() => null}>
-        <sphereGeometry args={[1, 6, 4]} />
-        <meshBasicMaterial vertexColors toneMapped={false} depthWrite={false} />
-      </instancedMesh>
-      <mesh ref={axonPulseRef} visible={false} renderOrder={3} raycast={() => null}>
-        <sphereGeometry args={[1, 8, 6]} />
-        <meshBasicMaterial color={FIRE} toneMapped={false} depthWrite={false} />
-      </mesh>
-      <HeadAndThought answer={answer} />
-      <group position={[3.34, 1.0, -2.5]}>
-        {Array.from({ length: 10 }, (_, output) => (
-          <group key={output} position={[(output - 4.5) * 0.105, 0, 0]}>
-            <mesh ref={(mesh) => { barRefs.current[output] = mesh; }} scale={[1, 0.004, 1]}>
-              <boxGeometry args={[0.055, 1, 0.055]} />
+      <group position={NEURON_POS}>
+        {/* The provided neuron.glb, unchanged; effects are layered on top. */}
+        <SafeModel url={NEURON_URL} size={NEURON_SIZE} fallback={<NeuronPlaceholder />} />
+        <group scale={NEURON_SCALE}>
+          <mesh ref={somaRef} position={[SOMA_POINT[0], SOMA_POINT[1], 0.05]} material={mats.soma} renderOrder={3} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </mesh>
+          <mesh ref={hillockRef} position={[HILLOCK_POINT[0], HILLOCK_POINT[1], 0.05]} scale={0.18} material={mats.hillock} renderOrder={3} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </mesh>
+          <mesh ref={terminalRef} position={[0.72, -0.44, 0.05]} scale={0.5} material={mats.terminal} renderOrder={3} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </mesh>
+          <mesh ref={axonRef} scale={0.14} material={mats.axon} visible={false} renderOrder={4} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </mesh>
+          <instancedMesh ref={pulseRef} args={[undefined, undefined, MAX_PULSES]} material={mats.pulses} frustumCulled={false} renderOrder={4} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </instancedMesh>
+          <instancedMesh ref={particleRef} args={[undefined, undefined, PARTICLES]} material={mats.particles} frustumCulled={false} renderOrder={4} raycast={() => null}>
+            <planeGeometry args={[1, 1]} />
+          </instancedMesh>
+          <instancedMesh ref={pathwayRef} args={[undefined, undefined, 64]} frustumCulled={false} renderOrder={3} raycast={() => null}>
+            <sphereGeometry args={[0.012, 6, 4]} />
+            <meshBasicMaterial toneMapped={false} />
+          </instancedMesh>
+          {debug && <Guides curves={[...dCurves, aCurve]} />}
+        </group>
+      </group>
+
+      {/* IPS glow patches on the faint brain figure. */}
+      <group position={BRAIN_MODEL_POS}>
+        {IPS_PATCHES.map((patch, i) => (
+          <mesh key={i} position={patch.position} rotation={patch.rotation} scale={patch.scale} material={mats.ips} raycast={() => null}>
+            <sphereGeometry args={[1, 16, 10]} />
+          </mesh>
+        ))}
+        {debug && IPS_PATCHES.map((patch, i) => (
+          <mesh key={`w${i}`} position={patch.position} rotation={patch.rotation} scale={patch.scale} raycast={() => null}>
+            <sphereGeometry args={[1, 10, 6]} />
+            <meshBasicMaterial color="#00ff88" wireframe />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Oscilloscope under the neuron. */}
+      <group position={[centerX - 0.15, 0.62, -2.15]}>
+        <mesh position={[0, SCOPE_H / 2, -0.005]}>
+          <planeGeometry args={[SCOPE_W + 0.08, SCOPE_H + 0.12]} />
+          <meshBasicMaterial color="#070a12" transparent opacity={0.85} />
+        </mesh>
+        {/* @ts-expect-error three line element */}
+        <line ref={scopeLine} geometry={scope.line} frustumCulled={false}>
+          <lineBasicMaterial color="#7dffb0" toneMapped={false} />
+        </line>
+        <lineSegments ref={scopeSpikes} geometry={scope.spikes} frustumCulled={false}>
+          <lineBasicMaterial color={FIRE} toneMapped={false} />
+        </lineSegments>
+        <DashedLine y={scope.thresholdY} />
+        <Text position={[-SCOPE_W / 2, SCOPE_H + 0.035, 0]} fontSize={0.035} color="#9fd8b8" anchorX="left" anchorY="middle">membrane potential</Text>
+        <Text position={[SCOPE_W / 2, scope.thresholdY + 0.025, 0]} fontSize={0.03} color="#c9a0a6" anchorX="right" anchorY="middle">threshold</Text>
+      </group>
+
+      {/* Output spike counts for all 10 output neurons. */}
+      <group position={[centerX - 1.45, 1.0, -2.2]}>
+        {Array.from({ length: 10 }, (_, o) => (
+          <group key={o} position={[(o - 4.5) * 0.075, 0, 0]}>
+            <mesh ref={(m) => { barRefs.current[o] = m; }} scale={[1, 0.004, 1]}>
+              <boxGeometry args={[0.045, 1, 0.045]} />
               <meshBasicMaterial color={BAR_IDLE} toneMapped={false} />
             </mesh>
-            <Text position={[0, 0.12, 0]} fontSize={0.065} color="#d7c5d2" anchorX="center" anchorY="middle">{String(output)}</Text>
+            <Text position={[0, -0.05, 0]} fontSize={0.045} color="#d7c5d2" anchorX="center" anchorY="middle">{String(o)}</Text>
           </group>
         ))}
-        <Text position={[0, -0.02, 0]} fontSize={0.06} color="#ffc2ea" anchorX="center" anchorY="middle">output spikes</Text>
+        <Text position={[0, -0.12, 0]} fontSize={0.045} color="#ffc2ea" anchorX="center" anchorY="middle">output spikes</Text>
       </group>
+
+      <HeadAndThought position={HEAD} answer={answer} />
+
       <Text position={[centerX, 3.35, -2.2]} fontSize={0.22} color="#ff5fc8" anchorX="center" anchorY="middle">Brain network</Text>
       <Text position={[centerX, 3.05, -2.2]} fontSize={0.3} color="#ffb070" anchorX="center" anchorY="middle">{`Brain: ${answer}`}</Text>
-      {result && status && (
+      {res && status && (
         <>
           <Text position={[centerX, 2.83, -2.2]} fontSize={0.05} color="#f3e2d7" anchorX="center" anchorY="middle">
-            {status.revealed ? `decided at step ${result.decisionStep} · ${result.synapticEvents.toLocaleString("en-US")} calculations` : result.noAnswer && status.step >= SNN_T ? `${result.synapticEvents.toLocaleString("en-US")} calculations` : `step ${status.step}/${SNN_T}`}
+            {done
+              ? res.noAnswer
+                ? `no answer · ${res.synapticEvents.toLocaleString("en-US")} calculations`
+                : `${Math.round(res.confidence * 100)}% confidence · ${res.synapticEvents.toLocaleString("en-US")} calculations`
+              : `step ${status.step}/${SNN_T} · ${liveSpikes} fires`}
           </Text>
-          <Text position={[centerX, 2.7, -2.2]} fontSize={0.045} color="#f3e2d7" anchorX="center" anchorY="middle">
-            {`${status.fired} fires${status.revealed ? ` · ${confidence}` : ""}`}
-          </Text>
+          {done && runs && runs.lesioned.size > 0 && (
+            <Text position={[centerX, 2.7, -2.2]} fontSize={0.05} color="#ff8899" anchorX="center" anchorY="middle">
+              {`healthy: ${healthySpikes} spikes / damaged: ${damagedSpikes} spikes`}
+            </Text>
+          )}
         </>
       )}
-      <Text position={[centerX, 0.34, -2.25]} maxWidth={2.1} fontSize={0.055} lineHeight={1.3} color="#d9bfd3" textAlign="center" anchorX="center" anchorY="middle">
+      <Text position={[centerX, 0.3, -2.2]} maxWidth={2.1} fontSize={0.05} lineHeight={1.3} color="#d9bfd3" textAlign="center" anchorX="center" anchorY="middle">
         Output neuron of the brain-style network. The network behind it is running, just hidden.
       </Text>
     </group>
   );
 }
 
-function OpticBundle() {
-  const curves = useMemo(() => Array.from({ length: 5 }, (_, i) => {
-    const offset = (i - 2) * 0.035;
-    return new THREE.CatmullRomCurve3([
-      new THREE.Vector3(2.4 + offset, EYE_Y, -0.7),
-      new THREE.Vector3(2.4 + offset * 1.8, 1.55, -1.35),
-      new THREE.Vector3(2.4 + offset * 4, 1.55 + offset * 3, -1.55),
-    ]);
-  }), []);
-  return <>{curves.map((curve, i) => (
-    <mesh key={i} raycast={() => null}>
-      <tubeGeometry args={[curve, 12, 0.012, 5, false]} />
-      <meshBasicMaterial color="#ffc2ea" transparent opacity={0.15} depthWrite={false} />
-    </mesh>
-  ))}</>;
-}
-
-function Axon() {
-  const curve = useMemo(() => new THREE.CatmullRomCurve3([
-    new THREE.Vector3(...SOMA),
-    new THREE.Vector3(SOMA[0] + 0.08, SOMA[1] - 0.04, -3.0),
-    new THREE.Vector3(SOMA[0] - 0.06, SOMA[1] + 0.03, -3.65),
-    new THREE.Vector3(HEAD[0], HEAD[1] + 0.18, HEAD[2]),
-  ]), []);
+function DashedLine({ y }: { y: number }) {
+  const geometry = useMemo(() => {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-SCOPE_W / 2, y, 0.001), new THREE.Vector3(SCOPE_W / 2, y, 0.001)]);
+    return g;
+  }, [y]);
+  const ref = useRef<THREE.Line>(null);
+  useEffect(() => { ref.current?.computeLineDistances(); }, [geometry]);
   return (
-    <mesh raycast={() => null}>
-      <tubeGeometry args={[curve, 28, 0.035, 6, false]} />
-      <meshBasicMaterial color="#8d73a2" toneMapped={false} />
-    </mesh>
+    // @ts-expect-error three line element
+    <line ref={ref} geometry={geometry}>
+      <lineDashedMaterial color="#c9a0a6" dashSize={0.03} gapSize={0.02} />
+    </line>
   );
 }
 
-function HeadAndThought({ answer }: { answer: string }) {
+function Guides({ curves }: { curves: THREE.CatmullRomCurve3[] }) {
+  const geos = useMemo(() => curves.map((c) => new THREE.BufferGeometry().setFromPoints(c.getPoints(24))), [curves]);
+  useEffect(() => () => geos.forEach((g) => g.dispose()), [geos]);
   return (
-    <group position={HEAD}>
+    <group position={[0, 0, 0.06]}>
+      {geos.map((g, i) => (
+        // @ts-expect-error three line element
+        <line key={i} geometry={g}>
+          <lineBasicMaterial color={i === geos.length - 1 ? "#00ffff" : "#00ff88"} depthTest={false} />
+        </line>
+      ))}
+      <mesh position={SOMA_POINT}><sphereGeometry args={[0.03, 8, 6]} /><meshBasicMaterial color="#ffff00" depthTest={false} /></mesh>
+      <mesh position={HILLOCK_POINT}><sphereGeometry args={[0.025, 8, 6]} /><meshBasicMaterial color="#ff8800" depthTest={false} /></mesh>
+      {AXON_GUIDE.length > 0 && null}
+    </group>
+  );
+}
+
+function HeadAndThought({ answer, position }: { answer: string; position: [number, number, number] }) {
+  return (
+    <group position={position}>
       <mesh position={[0, 0.35, 0]}>
         <sphereGeometry args={[0.16, 10, 8]} />
         <meshBasicMaterial color="#d8b6c8" />
@@ -323,16 +456,16 @@ function HeadAndThought({ answer }: { answer: string }) {
         <capsuleGeometry args={[0.12, 0.28, 4, 8]} />
         <meshBasicMaterial color="#704c73" />
       </mesh>
-      <group position={[0.28, 0.72, 0]}>
+      <group position={[0.1, 0.9, 0]}>
         <mesh>
-          <sphereGeometry args={[0.3, 12, 8]} />
+          <sphereGeometry args={[0.25, 12, 8]} />
           <meshBasicMaterial color="#fff1f7" transparent opacity={0.92} />
         </mesh>
-        <mesh position={[-0.22, -0.22, 0]}>
-          <sphereGeometry args={[0.07, 8, 6]} />
+        <mesh position={[-0.08, -0.3, 0]}>
+          <sphereGeometry args={[0.05, 8, 6]} />
           <meshBasicMaterial color="#fff1f7" transparent opacity={0.92} />
         </mesh>
-        <Text position={[0, 0, 0.305]} fontSize={answer === "No answer" ? 0.09 : 0.18} maxWidth={0.5} color="#3a2440" anchorX="center" anchorY="middle">{answer}</Text>
+        <Text position={[0, 0, 0.255]} fontSize={0.18} color="#3a2440" anchorX="center" anchorY="middle">{answer}</Text>
       </group>
     </group>
   );

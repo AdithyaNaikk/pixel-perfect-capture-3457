@@ -32,6 +32,11 @@ interface AppState {
   toggleLesion: (h: number) => void;
   lesionRandom: (n: number) => void;
   healAll: () => void;
+  debugGuides: boolean;
+  toggleDebugGuides: () => void;
+  weightsStatus: string;
+  selfTest: string;
+  setDiagnostics: (weightsStatus: string, selfTest: string) => void;
 }
 
 const HIDDEN_COUNT = 64;
@@ -85,6 +90,11 @@ export const useAppStore = create<AppState>((set, get) => {
     }
     applyLesions(next);
   },
+  debugGuides: false,
+  toggleDebugGuides: () => set((s) => ({ debugGuides: !s.debugGuides })),
+  weightsStatus: "loading weights…",
+  selfTest: "",
+  setDiagnostics: (weightsStatus, selfTest) => set({ weightsStatus, selfTest }),
   healAll: () => {
     if (get().lesioned.size > 0) applyLesions(new Set<number>());
   },

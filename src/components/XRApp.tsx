@@ -9,6 +9,10 @@ import { VRDrawing } from "./VRDrawing";
 import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
+import { runSelfTest } from "@/lib/selfTest";
+import { Teleport } from "./Teleport";
+import { useRef } from "react";
+import type * as THREE from "three";
 
 export function XRApp() {
   const store = useMemo(
@@ -33,6 +37,7 @@ export function XRApp() {
       }),
     [],
   );
+  const originRef = useRef<THREE.Group>(null);
   const [weights, setWeights] = useState<Weights | null>(null);
   const [vrSupported, setVrSupported] = useState<boolean | null>(null);
   const [drawingExpanded, setDrawingExpanded] = useState(true);
@@ -49,7 +54,9 @@ export function XRApp() {
   useEffect(() => {
     let alive = true;
     loadWeights().then((w) => {
-      if (alive) setWeights(w);
+      if (!alive) return;
+      setWeights(w);
+      useAppStore.getState().setDiagnostics(w.isPlaceholder ? "RANDOM WEIGHTS" : "trained weights loaded", runSelfTest(w));
     });
     return () => {
       alive = false;
@@ -81,7 +88,8 @@ export function XRApp() {
         <XR store={store}>
           <color attach="background" args={["#0a0c16"]} />
           <fog attach="fog" args={["#0a0c16", 9, 20]} />
-          <XROrigin position={[0, 0, 3]} />
+          <XROrigin ref={originRef} position={[0, 0, 3]} />
+          <Teleport originRef={originRef} />
           {weights && <Scene weights={weights} />}
           <VRDrawing />
           <ControllerPen />
@@ -121,6 +129,7 @@ export function XRApp() {
             </span>
           )}
           <LesionControls />
+          <DebugToggle />
         </div>
       </div>
       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} top={<PlaybackControls />} />
@@ -183,5 +192,15 @@ function PlaybackControls() {
         ))}
       </div>
     </div>
+  );
+}
+
+function DebugToggle() {
+  const on = useAppStore((s) => s.debugGuides);
+  const toggle = useAppStore((s) => s.toggleDebugGuides);
+  return (
+    <button onClick={toggle} aria-pressed={on} className="pointer-events-auto rounded-full border border-slate-400/30 bg-slate-400/10 px-3 py-1 font-mono text-[10px] text-slate-300 hover:bg-slate-400/20">
+      Debug guides {on ? "on" : "off"}
+    </button>
   );
 }

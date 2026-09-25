@@ -1,11 +1,13 @@
 import { Text } from "@react-three/drei";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import { useXR, useXRInputSourceState } from "@react-three/xr";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import { preprocessStrokes, type Point } from "@/lib/preprocess";
 import { useAppStore } from "@/lib/store";
+import { rightHand } from "@/lib/rightHand";
+import { goldenSeven } from "@/lib/selfTest";
 
 const PANEL_POS = new THREE.Vector3(0, 1.2, 1.6);
 const PANEL_SIZE = 0.6;
@@ -35,13 +37,15 @@ function VRDrawingInner() {
   /** Strokes in panel-local 2D coordinates (metres, y up). */
   const strokes = useRef<Point[][]>([]);
   const current = useRef<Point[] | null>(null);
-  /** Latest ray hit on the panel in local coordinates, or null when the ray is off the panel. */
-  const hit = useRef<THREE.Vector3 | null>(null);
-  const hitVec = useMemo(() => new THREE.Vector3(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const rayOrigin = useMemo(() => new THREE.Vector3(), []);
   const rayDirection = useMemo(() => new THREE.Vector3(), []);
   const segCount = useRef(0);
+  const tipLocal = useMemo(() => new THREE.Vector3(0, 0, -0.13), []);
+  const tip = useMemo(() => new THREE.Vector3(), []);
+  const [warning, setWarning] = useState("");
+  const weightsStatus = useAppStore((s) => s.weightsStatus);
+  const selfTest = useAppStore((s) => s.selfTest);
 
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -87,6 +91,7 @@ function VRDrawingInner() {
     current.current = null;
     segCount.current = 0;
     geometry.setDrawRange(0, 0);
+    setWarning("");
   };
 
   const submit = () => {
@@ -94,17 +99,17 @@ function VRDrawingInner() {
       .filter((s) => s.length > 0)
       // mm units; flip Y so the result is screen-like (y down) for preprocessStrokes.
       .map((s) => s.map((p) => ({ x: p.x * 1000, y: -p.y * 1000 })));
-    if (pts.length === 0) return;
+    const all = pts.flat();
+    if (all.length === 0) return setWarning("Nothing drawn yet");
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of all) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+    const size = Math.max(maxX - minX, maxY - minY);
+    if (all.length < 5 || size < 5) return setWarning("Only a dot: draw a full digit");
+    if (size < 30) return setWarning("Too small: draw bigger");
+    setWarning("");
     run(preprocessStrokes(pts));
   };
 
-  const onMove = (e: ThreeEvent<PointerEvent>) => {
-    hitVec.copy(e.point).sub(PANEL_POS); // panel faces +Z, unrotated: local X/Y = world X/Y
-    hit.current = hitVec;
-  };
-  const onLeave = () => {
-    hit.current = null;
-  };
 
   useFrame(({ scene }) => {
     const x = pressed(left?.gamepad["x-button"]);
@@ -127,17 +132,22 @@ function VRDrawingInner() {
     const trigger = pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
     const b = pressed(controller.gamepad["b-button"]);
-    const h = hit.current;
+    if (trigger && rightHand.mode === "idle") rightHand.mode = "draw";
+    if (!trigger && rightHand.mode === "draw") rightHand.mode = "idle";
+    const obj = controller.object;
 
-    if (trigger && h) {
+    if (trigger && rightHand.mode === "draw" && obj) {
+      // Controller tip in world space -> panel-local 2D (x right, y up; panel is unrotated).
+      obj.updateWorldMatrix(true, false);
+      tip.copy(tipLocal).applyMatrix4(obj.matrixWorld).sub(PANEL_POS);
       if (!current.current) {
         current.current = [];
         strokes.current.push(current.current);
       }
       const stroke = current.current;
       const last = stroke[stroke.length - 1];
-      const px = h.x;
-      const py = h.y;
+      const px = tip.x;
+      const py = tip.y;
       if (!last || Math.abs(last.x - px) + Math.abs(last.y - py) > 0.001) {
         if (last && segCount.current < MAX_SEGMENTS) {
           const arr = geometry.attributes["position"]!.array as Float32Array;
@@ -173,12 +183,8 @@ function VRDrawingInner() {
     <group position={PANEL_POS}>
       <mesh
         renderOrder={0}
-        onPointerMove={(e) => { e.stopPropagation(); onMove(e); }}
-        onPointerOver={(e) => { e.stopPropagation(); onMove(e); }}
         onPointerDown={(e) => e.stopPropagation()}
         onPointerUp={(e) => e.stopPropagation()}
-        onPointerLeave={onLeave}
-        onPointerOut={onLeave}
       >
         <planeGeometry args={[PANEL_SIZE, PANEL_SIZE]} />
         <meshBasicMaterial color="#0b0f16" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
@@ -193,6 +199,15 @@ function VRDrawingInner() {
       <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
         Draw here
       </Text>
+      <Text position={[0, h + 0.075, 0]} fontSize={0.022} color={weightsStatus === "RANDOM WEIGHTS" ? "#ff5566" : "#7fe3a8"} anchorX="center" anchorY="middle">
+        {`${weightsStatus}${selfTest ? "  ·  " + selfTest : ""}`}
+      </Text>
+      {warning && (
+        <Text position={[0, -h + 0.04, 0.004]} fontSize={0.026} color="#ffb070" anchorX="center" anchorY="middle">
+          {warning}
+        </Text>
+      )}
+      <VRButton label="Test digit" position={[-0.5, -h - 0.07, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
       <VRButton label="Clear" position={[-0.3, -h - 0.07, 0]} onPress={clear} />
       <VRButton label="Submit" position={[-0.1, -h - 0.07, 0]} onPress={submit} />
       <VRButton
@@ -219,7 +234,7 @@ function VRDrawingInner() {
           <meshBasicMaterial map={texture} toneMapped={false} />
         </mesh>
         <Text position={[0, -0.1, 0]} fontSize={0.016} color="#9fb0c4" anchorX="center" anchorY="middle">
-          28×28
+          network input 28×28
         </Text>
       </group>
     </group>
