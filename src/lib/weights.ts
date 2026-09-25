@@ -3,6 +3,9 @@ export interface SnnSettings {
   input_rate: number;
   leak: number;
   threshold: number;
+  /** Optional fixed weight scales from weights.json (W1_scale / W2_scale). */
+  w1Scale?: number;
+  w2Scale?: number;
 }
 
 export interface WeightsMeta {
@@ -31,6 +34,12 @@ interface WeightsFile {
   /** [64][10]: w2[j][k] = hidden j -> output k */
   w2: number[][];
   meta?: WeightsMeta;
+  W1_scale?: number;
+  W2_scale?: number;
+  beta?: number;
+  threshold?: number;
+  timesteps?: number;
+  input_rate?: number;
 }
 
 export const INPUT_SIZE = 784;
@@ -72,17 +81,22 @@ function isValidFile(data: unknown): data is WeightsFile {
 
 function fromFile(file: WeightsFile, isPlaceholder: boolean): Weights {
   const meta = file.meta ?? {};
-  const s = meta.snn_settings ?? {};
+  const s = (meta.snn_settings ?? {}) as Partial<SnnSettings> & Record<string, unknown>;
+  const m = meta as Record<string, unknown>;
   const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+  const pick = (...vals: unknown[]) => vals.find((v) => typeof v === "number" && Number.isFinite(v)) as number | undefined;
+  const w1Scale = pick(file.W1_scale, s["W1_scale"], m["W1_scale"]);
+  const w2Scale = pick(file.W2_scale, s["W2_scale"], m["W2_scale"]);
   return {
     w1: transpose(file.w1),
     w2: transpose(file.w2),
     meta,
     snn: {
-      steps: num(s.steps, DEFAULT_SNN.steps),
-      input_rate: num(s.input_rate, DEFAULT_SNN.input_rate),
-      leak: num(s.leak, DEFAULT_SNN.leak),
-      threshold: num(s.threshold, DEFAULT_SNN.threshold),
+      steps: num(pick(file.timesteps, s["timesteps"], s.steps), DEFAULT_SNN.steps),
+      input_rate: num(pick(file.input_rate, s.input_rate), DEFAULT_SNN.input_rate),
+      leak: num(pick(file.beta, s["beta"], s.leak), DEFAULT_SNN.leak),
+      threshold: num(pick(file.threshold, s.threshold), DEFAULT_SNN.threshold),
+      ...(w1Scale !== undefined && w2Scale !== undefined ? { w1Scale, w2Scale } : {}),
     },
     isPlaceholder,
   };

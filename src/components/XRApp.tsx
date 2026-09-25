@@ -9,8 +9,9 @@ import { VRDrawing } from "./VRDrawing";
 import { ControllerPen } from "./Models";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";
-import { runSelfTest } from "@/lib/selfTest";
+import { runBrainSelfTest, runSelfTest } from "@/lib/selfTest";
 import { Teleport } from "./Teleport";
+import { LesionRay } from "./LesionRay";
 import { useRef } from "react";
 import type * as THREE from "three";
 
@@ -57,6 +58,7 @@ export function XRApp() {
       if (!alive) return;
       setWeights(w);
       useAppStore.getState().setDiagnostics(w.isPlaceholder ? "RANDOM WEIGHTS" : "trained weights loaded", runSelfTest(w));
+      useAppStore.getState().setBrainSelfTest(runBrainSelfTest(w));
     });
     return () => {
       alive = false;
@@ -86,6 +88,7 @@ export function XRApp() {
         camera={{ position: [0, 2.2, 5], fov: 60, near: 0.05, far: 100 }}
       >
         <XR store={store}>
+          <LesionRay />
           <color attach="background" args={["#0a0c16"]} />
           <fog attach="fog" args={["#0a0c16", 9, 20]} />
           <XROrigin ref={originRef} position={[0, 0, 3]} />
@@ -143,6 +146,8 @@ function LesionControls() {
   const random = useAppStore((s) => s.lesionRandom);
   const heal = useAppStore((s) => s.healAll);
   const count = useAppStore((s) => s.lesioned.size);
+  const brainTest = useAppStore((s) => s.brainSelfTest);
+  const votes = useAppStore((s) => s.brainCounts);
   const btn = "rounded-full border border-red-400/40 bg-red-400/10 px-3 py-1 text-red-200 hover:bg-red-400/20";
   return (
     <div className="pointer-events-auto flex flex-col items-end gap-1.5 font-mono text-xs">
@@ -153,8 +158,14 @@ function LesionControls() {
         <>
           <button onClick={() => random(10)} className={btn}>Lesion 10 random</button>
           <button onClick={heal} className={btn}>Heal all</button>
-          <span className="text-[10px] text-red-200/70">Lesioned: {count} / 64</span>
+          <span className="text-[10px] text-red-200/70">Damaged: {count} / 64</span>
         </>
+      )}
+      {brainTest && <span className="text-[10px] text-slate-300">{brainTest}</span>}
+      {votes && (
+        <span className="text-[10px] text-orange-200/80">
+          Brain vote: {votes.map((c, d) => `${d}:${c}`).join(" ")}
+        </span>
       )}
     </div>
   );

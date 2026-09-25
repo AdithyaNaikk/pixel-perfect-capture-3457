@@ -55,8 +55,10 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
   for (const v of ann.output) maxO = Math.max(maxO, v);
   if (!(maxH > 0)) maxH = 1;
   if (!(maxO > 0)) maxO = 1;
-  const s1 = 1 / maxH;
-  const s2 = maxH / maxO;
+  // Fixed scales from weights.json when provided; otherwise per-layer data normalisation.
+  const fixed = weights.snn?.w1Scale !== undefined && weights.snn?.w2Scale !== undefined;
+  const s1 = fixed ? weights.snn.w1Scale! : 1 / maxH;
+  const s2 = fixed ? weights.snn.w2Scale! : maxH / maxO;
 
   const rand = mulberry32(42);
   const vH = new Float32Array(HIDDEN_SIZE);

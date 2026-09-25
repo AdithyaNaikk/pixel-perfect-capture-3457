@@ -37,6 +37,11 @@ interface AppState {
   weightsStatus: string;
   selfTest: string;
   setDiagnostics: (weightsStatus: string, selfTest: string) => void;
+  brainSelfTest: string;
+  setBrainSelfTest: (s: string) => void;
+  /** Final output spike counts of the last brain run (the brain's vote). */
+  brainCounts: number[] | null;
+  setBrainCounts: (c: number[] | null) => void;
 }
 
 const HIDDEN_COUNT = 64;
@@ -95,6 +100,10 @@ export const useAppStore = create<AppState>((set, get) => {
   weightsStatus: "loading weights…",
   selfTest: "",
   setDiagnostics: (weightsStatus, selfTest) => set({ weightsStatus, selfTest }),
+  brainSelfTest: "",
+  setBrainSelfTest: (brainSelfTest) => set({ brainSelfTest }),
+  brainCounts: null,
+  setBrainCounts: (brainCounts) => set({ brainCounts }),
   healAll: () => {
     if (get().lesioned.size > 0) applyLesions(new Set<number>());
   },
