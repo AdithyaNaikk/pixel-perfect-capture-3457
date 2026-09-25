@@ -1,4 +1,6 @@
 import { forward } from "./ann";
+import { goldenDigits } from "./goldenDigits";
+import { simulate } from "./snn";
 import { preprocessStrokes, type Point } from "./preprocess";
 import type { Weights } from "./weights";
 
@@ -22,4 +24,13 @@ export function goldenSeven(): Float32Array {
 export function runSelfTest(weights: Weights): string {
   const p = forward(goldenSeven(), weights, new Set()).prediction;
   return p === 7 ? "Self-test: PASS (7 → 7)" : `Self-test: FAIL (7 → ${p})`;
+}
+
+/** Brain (spiking) network on the 10 golden digits 0–9. */
+export function runBrainSelfTest(weights: Weights): string {
+  let ok = 0;
+  goldenDigits().forEach((x, d) => {
+    if (simulate(x, weights, new Set()).prediction === d) ok++;
+  });
+  return `Brain self-test: ${ok}/10`;
 }

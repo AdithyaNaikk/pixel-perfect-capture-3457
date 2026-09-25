@@ -1,5 +1,5 @@
 import { Text } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useXR, useXRInputSourceState } from "@react-three/xr";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -10,7 +10,11 @@ import { rightHand } from "@/lib/rightHand";
 import { goldenSeven } from "@/lib/selfTest";
 
 const PANEL_POS = new THREE.Vector3(0, 1.2, 1.6);
-const PANEL_SIZE = 0.6;
+const PANEL_SIZE = 0.3;
+/** Max distance of the pen tip from the pad surface that still counts as drawing. */
+const DRAW_DEPTH = 0.06;
+const PAD_DISTANCE = 0.45;
+const CHEST_DROP = 0.35;
 const MAX_SEGMENTS = 20000;
 const GLOW = "#ffe2b8";
 
@@ -27,25 +31,21 @@ export function VRDrawing() {
 
 function VRDrawingInner() {
   const controller = useXRInputSourceState("controller", "right");
-  const left = useXRInputSourceState("controller", "left");
   const run = useAppStore((s) => s.run);
   const lesionMode = useAppStore((s) => s.lesionMode);
   const lesionedCount = useAppStore((s) => s.lesioned.size);
-  const prevX = useRef(false);
-  const prevLeftTrigger = useRef(false);
   const prev = useRef({ a: false, b: false });
   /** Strokes in panel-local 2D coordinates (metres, y up). */
   const strokes = useRef<Point[][]>([]);
   const current = useRef<Point[] | null>(null);
-  const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const rayOrigin = useMemo(() => new THREE.Vector3(), []);
-  const rayDirection = useMemo(() => new THREE.Vector3(), []);
   const segCount = useRef(0);
   const tipLocal = useMemo(() => new THREE.Vector3(0, 0, -0.13), []);
   const tip = useMemo(() => new THREE.Vector3(), []);
   const [warning, setWarning] = useState("");
   const weightsStatus = useAppStore((s) => s.weightsStatus);
   const selfTest = useAppStore((s) => s.selfTest);
+  const brainSelfTest = useAppStore((s) => s.brainSelfTest);
+  const brainCounts = useAppStore((s) => s.brainCounts);
 
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -105,29 +105,45 @@ function VRDrawingInner() {
     for (const p of all) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
     const size = Math.max(maxX - minX, maxY - minY);
     if (all.length < 5 || size < 5) return setWarning("Only a dot: draw a full digit");
-    if (size < 30) return setWarning("Too small: draw bigger");
+    if (size < 20) return setWarning("Too small: draw bigger");
     setWarning("");
     run(preprocessStrokes(pts));
   };
 
 
-  useFrame(({ scene }) => {
-    const x = pressed(left?.gamepad["x-button"]);
-    if (x && !prevX.current) useAppStore.getState().toggleLesionMode();
-    prevX.current = x;
-    const leftTrigger = pressed(left?.gamepad["xr-standard-trigger"]);
-    if (lesionMode && leftTrigger && !prevLeftTrigger.current && left?.object) {
-      const target = scene.getObjectByName("ai-hidden-neurons");
-      if (target) {
-        left.object.updateWorldMatrix(true, false);
-        left.object.getWorldPosition(rayOrigin);
-        rayDirection.set(0, 0, -1).transformDirection(left.object.matrixWorld);
-        raycaster.set(rayOrigin, rayDirection);
-        const hitNeuron = raycaster.intersectObject(target, false)[0];
-        if (hitNeuron?.instanceId !== undefined) useAppStore.getState().toggleLesion(hitNeuron.instanceId);
+  const { camera } = useThree();
+  const padRef = useRef<THREE.Group>(null);
+  const cursorRef = useRef<THREE.Mesh>(null);
+  const lastOrigin = useRef<THREE.Vector3 | null>(null);
+  const tv = useMemo(() => ({ head: new THREE.Vector3(), fwd: new THREE.Vector3(), o: new THREE.Vector3() }), []);
+
+  /** Place the pad 45 cm in front of the head at chest height, facing the user (yaw only). */
+  const bringPad = () => {
+    const pad = padRef.current;
+    if (!pad) return;
+    camera.getWorldPosition(tv.head);
+    camera.getWorldDirection(tv.fwd);
+    tv.fwd.y = 0;
+    if (tv.fwd.lengthSq() < 1e-6) tv.fwd.set(0, 0, -1);
+    tv.fwd.normalize();
+    pad.position.set(tv.head.x + tv.fwd.x * PAD_DISTANCE, tv.head.y - CHEST_DROP, tv.head.z + tv.fwd.z * PAD_DISTANCE);
+    pad.rotation.set(0, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0);
+    current.current = null;
+  };
+
+  useFrame(() => {
+    // Teleport detection: the XR origin (camera parent) jumped -> bring the pad along.
+    const origin = camera.parent;
+    if (origin) {
+      origin.getWorldPosition(tv.o);
+      if (!lastOrigin.current) lastOrigin.current = tv.o.clone();
+      else if (lastOrigin.current.distanceToSquared(tv.o) > 1e-4) {
+        lastOrigin.current.copy(tv.o);
+        bringPad();
       }
     }
-    prevLeftTrigger.current = leftTrigger;
+    const cursor = cursorRef.current;
+    if (cursor) cursor.visible = false;
     if (!controller) return;
     const trigger = pressed(controller.gamepad["xr-standard-trigger"]);
     const a = pressed(controller.gamepad["a-button"]);
@@ -136,18 +152,33 @@ function VRDrawingInner() {
     if (!trigger && rightHand.mode === "draw") rightHand.mode = "idle";
     const obj = controller.object;
 
-    if (trigger && rightHand.mode === "draw" && obj) {
-      // Controller tip in world space -> panel-local 2D (x right, y up; panel is unrotated).
+    const pad = padRef.current;
+    let inside = false;
+    let px = 0;
+    let py = 0;
+    if (obj && pad) {
+      // Pen tip in pad-local coordinates (x right, y up, z out of the pad), 1:1 metres.
       obj.updateWorldMatrix(true, false);
-      tip.copy(tipLocal).applyMatrix4(obj.matrixWorld).sub(PANEL_POS);
+      pad.updateWorldMatrix(true, false);
+      tip.copy(tipLocal).applyMatrix4(obj.matrixWorld);
+      pad.worldToLocal(tip);
+      px = tip.x;
+      py = tip.y;
+      const h = PANEL_SIZE / 2;
+      inside = Math.abs(px) <= h && Math.abs(py) <= h && Math.abs(tip.z) <= DRAW_DEPTH;
+      if (inside && cursor) {
+        cursor.position.set(px, py, 0.004);
+        cursor.visible = true;
+      }
+    }
+
+    if (trigger && rightHand.mode === "draw" && inside) {
       if (!current.current) {
         current.current = [];
         strokes.current.push(current.current);
       }
       const stroke = current.current;
       const last = stroke[stroke.length - 1];
-      const px = tip.x;
-      const py = tip.y;
       if (!last || Math.abs(last.x - px) + Math.abs(last.y - py) > 0.001) {
         if (last && segCount.current < MAX_SEGMENTS) {
           const arr = geometry.attributes["position"]!.array as Float32Array;
@@ -161,6 +192,7 @@ function VRDrawingInner() {
         stroke.push({ x: px, y: py });
       }
     } else {
+      // Leaving the pad (or releasing the trigger) ends the stroke: ink is clipped at the edges.
       current.current = null;
     }
 
@@ -180,7 +212,7 @@ function VRDrawingInner() {
   }, [h]);
 
   return (
-    <group position={PANEL_POS}>
+    <group ref={padRef} position={PANEL_POS}>
       <mesh
         renderOrder={0}
         onPointerDown={(e) => e.stopPropagation()}
@@ -196,44 +228,55 @@ function VRDrawingInner() {
       <lineSegments geometry={geometry} frustumCulled={false} raycast={() => null}>
         <lineBasicMaterial color={GLOW} toneMapped={false} />
       </lineSegments>
-      <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
+      <Text position={[0, h + 0.02, 0]} fontSize={0.02} color={GLOW} anchorX="center" anchorY="middle">
         Draw here
       </Text>
-      <Text position={[0, h + 0.075, 0]} fontSize={0.022} color={weightsStatus === "RANDOM WEIGHTS" ? "#ff5566" : "#7fe3a8"} anchorX="center" anchorY="middle">
+      <Text position={[0, h + 0.05, 0]} fontSize={0.014} color={weightsStatus === "RANDOM WEIGHTS" ? "#ff5566" : "#7fe3a8"} anchorX="center" anchorY="middle">
         {`${weightsStatus}${selfTest ? "  ·  " + selfTest : ""}`}
       </Text>
       {warning && (
-        <Text position={[0, -h + 0.04, 0.004]} fontSize={0.026} color="#ffb070" anchorX="center" anchorY="middle">
+        <Text position={[0, -h + 0.03, 0.004]} fontSize={0.016} color="#ffb070" anchorX="center" anchorY="middle">
           {warning}
         </Text>
       )}
-      <VRButton label="Test digit" position={[-0.5, -h - 0.07, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
-      <VRButton label="Clear" position={[-0.3, -h - 0.07, 0]} onPress={clear} />
-      <VRButton label="Submit" position={[-0.1, -h - 0.07, 0]} onPress={submit} />
+      <mesh ref={cursorRef} visible={false} raycast={() => null} renderOrder={5}>
+        <circleGeometry args={[0.004, 12]} />
+        <meshBasicMaterial color="#ffffff" toneMapped={false} depthTest={false} />
+      </mesh>
+      <VRButton label="Test digit" position={[-0.21, -h - 0.045, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
+      <VRButton label="Clear" position={[-0.07, -h - 0.045, 0]} onPress={clear} />
+      <VRButton label="Submit" position={[0.07, -h - 0.045, 0]} onPress={submit} />
+      <VRButton label="Bring pad" position={[0.21, -h - 0.045, 0]} onPress={bringPad} />
       <VRButton
         label="Lesion mode"
-        position={[0.1, -h - 0.07, 0]}
+        position={[-0.21, -h - 0.105, 0]}
         onPress={() => useAppStore.getState().toggleLesionMode()}
         active={lesionMode}
       />
-      <VRButton label="Heal all" position={[0.3, -h - 0.07, 0]} onPress={() => useAppStore.getState().healAll()} />
+      <VRButton label="Lesion 10 random" position={[-0.07, -h - 0.105, 0]} onPress={() => useAppStore.getState().lesionRandom(10)} />
+      <VRButton label="Heal all" position={[0.07, -h - 0.105, 0]} onPress={() => useAppStore.getState().healAll()} />
       <VRButton
         label="Run again"
-        position={[0.5, -h - 0.07, 0]}
+        position={[0.21, -h - 0.105, 0]}
         onPress={() => {
           const img = useAppStore.getState().inputImage;
           if (img) useAppStore.getState().run(img);
         }}
       />
-      <Text position={[0.1, -h - 0.135, 0]} fontSize={0.022} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
-        {`Lesioned: ${lesionedCount} / 64`}
+      <Text position={[0, -h - 0.155, 0]} fontSize={0.016} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
+        {`Damaged: ${lesionedCount} / 64${brainSelfTest ? "  ·  " + brainSelfTest : ""}`}
       </Text>
-      <group position={[h + 0.12, 0, 0]}>
+      {brainCounts && (
+        <Text position={[0, -h - 0.18, 0]} fontSize={0.014} color="#ffb070" anchorX="center" anchorY="middle">
+          {`Brain vote  ${brainCounts.map((c, d) => `${d}:${c}`).join("  ")}`}
+        </Text>
+      )}
+      <group position={[h + 0.09, 0, 0]}>
         <mesh>
-          <planeGeometry args={[0.16, 0.16]} />
+          <planeGeometry args={[0.12, 0.12]} />
           <meshBasicMaterial map={texture} toneMapped={false} />
         </mesh>
-        <Text position={[0, -0.1, 0]} fontSize={0.016} color="#9fb0c4" anchorX="center" anchorY="middle">
+        <Text position={[0, -0.075, 0]} fontSize={0.012} color="#9fb0c4" anchorX="center" anchorY="middle">
           network input 28×28
         </Text>
       </group>
@@ -263,10 +306,10 @@ function VRButton({
         onPointerOver={() => setHover(true)}
         onPointerOut={() => setHover(false)}
       >
-        <planeGeometry args={[0.18, 0.07]} />
+        <planeGeometry args={[0.13, 0.05]} />
         <meshBasicMaterial color={active ? (hover ? "#d6334a" : "#b3202f") : hover ? "#2c3f57" : "#162232"} side={THREE.DoubleSide} />
       </mesh>
-      <Text position={[0, 0, 0.002]} fontSize={0.026} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
+      <Text position={[0, 0, 0.002]} fontSize={label.length > 12 ? 0.013 : 0.017} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
         {label}
       </Text>
     </group>

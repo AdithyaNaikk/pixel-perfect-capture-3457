@@ -565,6 +565,8 @@ export function NetworkView({
         <meshBasicMaterial color="#ff2a3a" transparent opacity={0.85} depthWrite={false} toneMapped={false} />
       </mesh>
 
+      {side === "ai" && <SelectableOutline positions={hiddenPos} />}
+
       {side === "ai" && aiResult && winnerPosition && (
         <>
           <group ref={winnerRef} visible={false}>
@@ -651,5 +653,25 @@ function OutputLabels({ side, color, outputPos }: { side: NetworkSide; color: st
         </Text>
       ))}
     </>
+  );
+}
+
+/** Subtle red outline on every hidden neuron while lesion mode is on (shows they can be selected). */
+function SelectableOutline({ positions }: { positions: THREE.Vector3[] }) {
+  const on = useAppStore((s) => s.lesionMode);
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useEffect(() => {
+    const m = ref.current;
+    if (!m) return;
+    const mat = new THREE.Matrix4();
+    positions.forEach((p, i) => m.setMatrixAt(i, mat.makeTranslation(p.x, p.y, p.z)));
+    m.instanceMatrix.needsUpdate = true;
+  }, [positions, on]);
+  if (!on) return null;
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, positions.length]} frustumCulled={false} renderOrder={0} raycast={() => null}>
+      <sphereGeometry args={[HIDDEN_RADIUS * 1.22, 12, 8]} />
+      <meshBasicMaterial color="#ff5566" side={THREE.BackSide} transparent opacity={0.55} depthWrite={false} toneMapped={false} />
+    </instancedMesh>
   );
 }

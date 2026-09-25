@@ -60,7 +60,7 @@ function useExists(url: string) {
 }
 
 /** Clones the GLTF scene, centres it and scales its largest side to `size`. */
-function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = false }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean; opacity?: number; desaturate?: boolean }) {
+function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = false, children }: { url: string; size: number; rotation?: [number, number, number]; faceZ?: boolean; opacity?: number; desaturate?: boolean; children?: ReactNode | ((dims: THREE.Vector3) => ReactNode) }) {
   const { scene } = useGLTF(url);
   const obj = useMemo(() => {
     const clone = scene.clone(true);
@@ -70,7 +70,7 @@ function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = 
         const materials = Array.isArray(child.material) ? child.material : [child.material];
         child.material = materials.map((material) => {
           const faded = desaturate
-            ? new THREE.MeshLambertMaterial({ color: "#9a98a6", opacity: 1 })
+            ? new THREE.MeshBasicMaterial({ color: "#a9a6b8", opacity: 1, toneMapped: false })
             : material.clone();
           faded.transparent = true;
           faded.opacity *= opacity;
@@ -94,9 +94,14 @@ function Fitted({ url, size, rotation, faceZ = false, opacity = 1, desaturate = 
     clone.position.sub(centre);
     g.add(clone);
     g.scale.setScalar(s);
-    return g;
+    return { g, s, dims: dims.clone().multiplyScalar(s) };
   }, [scene, size, faceZ, opacity, desaturate]);
-  return <primitive object={obj} rotation={rotation} />;
+  // Children live inside the model's transform (in fitted metres, centred on the model).
+  return (
+    <primitive object={obj.g} rotation={rotation}>
+      {children && <group scale={1 / obj.s}>{typeof children === "function" ? children(obj.dims) : children}</group>}
+    </primitive>
+  );
 }
 
 export function SafeModel({
@@ -110,6 +115,7 @@ export function SafeModel({
   opacity?: number;
   desaturate?: boolean;
   fallback?: ReactNode;
+  children?: ReactNode | ((dims: THREE.Vector3) => ReactNode);
 }) {
   const ok = useExists(props.url);
   if (!ok) return <>{fallback}</>;
@@ -129,9 +135,6 @@ export function SceneModels() {
       <ChipSway>
         <SafeModel url={CHIP_URL} size={1} faceZ fallback={<ChipPlaceholder />} />
       </ChipSway>
-      <group position={BRAIN_MODEL_POS}>
-        <SafeModel url={BRAIN_URL} size={1.15} opacity={0.25} desaturate />
-      </group>
     </>
   );
 }
