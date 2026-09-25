@@ -52,6 +52,16 @@ export function Guidance3D() {
       >
         {text}
       </Text>
+      <Text
+        position={[0, -0.14, 0]}
+        fontSize={0.04}
+        color="#8fa3b8"
+        anchorX="center"
+        anchorY="middle"
+        renderOrder={2}
+      >
+        {`${HINT_VR}  ·  ${HINT_DESKTOP}`}
+      </Text>
     </group>
   );
 }
