@@ -36,11 +36,11 @@ export function Guidance3D() {
   return (
     <group position={[0, 2.3, -2.5]}>
       <mesh position={[0, 0, -0.02]} renderOrder={1}>
-        <planeGeometry args={[3.4, 0.42]} />
+        <planeGeometry args={[3.4, 0.52]} />
         <meshBasicMaterial color="#05060a" transparent opacity={0.6} depthWrite={false} />
       </mesh>
       <Text
-        position={[0, 0, 0]}
+        position={[0, 0.06, 0]}
         fontSize={0.062}
         maxWidth={3.2}
         lineHeight={1.25}
