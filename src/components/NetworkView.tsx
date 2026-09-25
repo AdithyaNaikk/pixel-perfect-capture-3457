@@ -15,7 +15,10 @@ import { forward, type ForwardResult } from "@/lib/ann";
 import type { Weights } from "@/lib/weights";
 import { useAppStore } from "@/lib/store";
 import { LESION_GREY, SpikingPlayback } from "./SpikingPlayback";
-import { CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
+import { BRANCH_COLOR, CURVE_SEGMENTS, createNeuronGeometry, curveControl, curvePoint, neuronQuat, organicOffset, seedIn, seedOut } from "@/lib/brainGeometry";
+const BRAIN_TOP_IN = 3;
+const BRAIN_TOP_OUT = 3;
+export const BRAIN_IDLE = new THREE.Color(1, 1, 1);
 
 export type NetworkSide = "ai" | "brain";
 
@@ -50,12 +53,13 @@ function useInstanced(
   color: string,
   ref: RefObject<THREE.InstancedMesh | null>,
   twistOffset: number | null = null,
+  idle: THREE.Color = INACTIVE,
 ) {
   useEffect(() => {
     const mesh = ref.current;
     if (!mesh) return;
     const dummy = new THREE.Object3D();
-    const base = INACTIVE.clone();
+    const base = idle.clone();
     for (let i = 0; i < positions.length; i++) {
       const position = positions[i];
       if (!position) continue;
@@ -67,7 +71,7 @@ function useInstanced(
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [positions, color, ref, twistOffset]);
+  }, [positions, color, ref, twistOffset, idle]);
 }
 
 export function NetworkView({
@@ -95,20 +99,25 @@ export function NetworkView({
 
   const hidX = centerX;
   const inputPos = useMemo(() => inputPositions(centerX), [centerX]);
-  const hiddenPos = useMemo(() => hiddenPositions(centerX), [centerX]);
+  const hiddenPos = useMemo(() => {
+    const pts = hiddenPositions(centerX);
+    if (side !== "brain") return pts;
+    const off = new THREE.Vector3();
+    return pts.map((p, h) => p.clone().add(organicOffset(h, off)));
+  }, [centerX, side]);
   const outputPos = useMemo(() => outputPositions(centerX), [centerX]);
 
   useInstanced(inputPos, color, inputRef);
   const brain = side === "brain";
-  useInstanced(hiddenPos, color, hiddenRef, brain ? 0 : null);
-  useInstanced(outputPos, color, outputRef, brain ? hiddenPos.length : null);
+  useInstanced(hiddenPos, color, hiddenRef, brain ? 0 : null, brain ? BRAIN_IDLE : INACTIVE);
+  useInstanced(outputPos, color, outputRef, brain ? hiddenPos.length : null, brain ? BRAIN_IDLE : INACTIVE);
   const brainGeo = useMemo(
     () =>
       brain
         ? {
             hidden: createNeuronGeometry(HIDDEN_RADIUS),
             output: createNeuronGeometry(OUTPUT_RADIUS),
-            input: new THREE.SphereGeometry(INPUT_CUBE_SIZE * 0.6, 6, 3),
+            input: new THREE.IcosahedronGeometry(INPUT_CUBE_SIZE * 0.42, 0),
           }
         : null,
     [brain],
@@ -308,7 +317,8 @@ export function NetworkView({
   });
 
   const lineGeometries = useMemo(() => {
-    const positive = new THREE.Color(color);
+    const positive = side === "brain" ? BRANCH_COLOR.clone() : new THREE.Color(color);
+    const topIn = side === "brain" ? BRAIN_TOP_IN : TOP_INCOMING;
     const inputVerts: number[] = [];
     const inputColors: number[] = [];
     const outputVerts: number[] = [];
@@ -344,7 +354,7 @@ export function NetworkView({
       if (!row || !hidden) continue;
       const idx = Array.from(row.keys())
         .sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0))
-        .slice(0, TOP_INCOMING);
+        .slice(0, topIn);
        for (const i of idx) {
         const input = inputPos[i];
         const weight = row[i];
@@ -354,12 +364,15 @@ export function NetworkView({
       }
     }
 
-    // Hidden -> output: all connections.
+    // Hidden -> output: all connections (Brain: top 3 incoming per output).
     for (let o = 0; o < weights.w2.length; o++) {
       const row = weights.w2[o];
       const output = outputPos[o];
       if (!row || !output) continue;
-      for (let h = 0; h < row.length; h++) {
+      const hs = side === "brain"
+        ? Array.from(row.keys()).sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0)).slice(0, BRAIN_TOP_OUT)
+        : Array.from(row.keys());
+      for (const h of hs) {
         const hidden = hiddenPos[h];
         const weight = row[h];
         if (!hidden || weight === undefined) continue;
@@ -393,7 +406,7 @@ export function NetworkView({
   // Lesions: grey neurons, red X marks, hidden connection lines.
   const xRef = useRef<THREE.InstancedMesh>(null);
   useEffect(() => {
-    const full = INACTIVE.clone();
+    const full = side === "brain" ? BRAIN_IDLE.clone() : INACTIVE.clone();
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const zAxis = new THREE.Vector3(0, 0, 1);
@@ -443,7 +456,7 @@ export function NetworkView({
     return useAppStore.subscribe((st, prev) => {
       if (st.lesioned !== prev.lesioned) apply(st.lesioned);
     });
-  }, [color, hiddenPos, lineGeometries]);
+  }, [side, color, hiddenPos, lineGeometries]);
 
   // Drawn input->hidden connections, per input pixel.
   const inputOut = useMemo(() => {
@@ -452,18 +465,30 @@ export function NetworkView({
       const row = weights.w1[h]!;
       Array.from(row.keys())
         .sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0))
-        .slice(0, TOP_INCOMING)
+        .slice(0, side === "brain" ? BRAIN_TOP_IN : TOP_INCOMING)
         .forEach((i) => out[i]?.push(h));
     }
     return out;
-  }, [weights, inputPos.length]);
+  }, [side, weights, inputPos.length]);
+  // Drawn hidden->output connections, per hidden neuron.
+  const hiddenOut = useMemo(() => {
+    const out: number[][] = Array.from({ length: hiddenPos.length }, () => []);
+    for (let o = 0; o < weights.w2.length; o++) {
+      const row = weights.w2[o]!;
+      const hs = side === "brain"
+        ? Array.from(row.keys()).sort((a, b) => Math.abs(row[b] ?? 0) - Math.abs(row[a] ?? 0)).slice(0, BRAIN_TOP_OUT)
+        : Array.from(row.keys());
+      for (const h of hs) out[h]?.push(o);
+    }
+    return out;
+  }, [side, weights, hiddenPos.length]);
 
   const winnerPosition = aiResult ? outputPos[aiResult.prediction] : undefined;
 
   return (
     <group position={position} name={`network-${side}`}>
       <lineSegments geometry={lineGeometries.all} frustumCulled={false} renderOrder={-1}>
-        <lineBasicMaterial ref={lineMaterialRef} vertexColors transparent opacity={0.18} depthWrite={false} />
+        <lineBasicMaterial ref={lineMaterialRef} vertexColors transparent opacity={brain ? 0.06 : 0.18} depthWrite={false} />
       </lineSegments>
 
       <instancedMesh
@@ -502,7 +527,7 @@ export function NetworkView({
         ) : (
           <sphereGeometry args={[HIDDEN_RADIUS, 12, 8]} />
         )}
-        <meshBasicMaterial toneMapped={false} />
+        <meshBasicMaterial toneMapped={false} vertexColors={brain} />
       </instancedMesh>
 
       <instancedMesh
@@ -527,7 +552,7 @@ export function NetworkView({
         ) : (
           <sphereGeometry args={[OUTPUT_RADIUS, 12, 8]} />
         )}
-        <meshBasicMaterial toneMapped={false} />
+        <meshBasicMaterial toneMapped={false} vertexColors={brain} />
       </instancedMesh>
 
       <mesh ref={hoverRef} visible={false} renderOrder={4} raycast={() => null}>
@@ -572,6 +597,7 @@ export function NetworkView({
           hiddenPos={hiddenPos}
           outputPos={outputPos}
           inputOut={inputOut}
+          hiddenOut={hiddenOut}
           panelX={hidX}
         />
       )}
