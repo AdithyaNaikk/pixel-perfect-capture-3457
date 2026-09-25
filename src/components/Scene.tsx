@@ -2,6 +2,7 @@ import { Grid, Text } from "@react-three/drei";
 
 import { OUTPUT_COUNT, OUTPUT_SPACING } from "@/lib/layout";
 
+import { Guidance3D } from "./Guidance";
 import { NetworkView } from "./NetworkView";
 import type { Weights } from "@/lib/weights";
 
@@ -38,6 +39,8 @@ export function Scene({ weights }: { weights: Weights }) {
         weights={weights}
         color={BRAIN_COLOR}
       />
+
+      <Guidance3D />
 
       {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
         <Text
