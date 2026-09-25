@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { preprocessStrokes, type Point } from "@/lib/preprocess";
 import { useAppStore } from "@/lib/store";
 
-const PANEL_POS = new THREE.Vector3(0, 1.2, -0.8);
+const PANEL_POS = new THREE.Vector3(0, 1.2, 1.6);
 const PANEL_SIZE = 0.6;
 const MAX_SEGMENTS = 20000;
 const GLOW = "#ffe2b8";

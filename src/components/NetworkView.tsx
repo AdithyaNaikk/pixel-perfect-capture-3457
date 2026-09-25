@@ -30,7 +30,6 @@ export interface NetworkViewProps {
 }
 
 const TOP_INCOMING = 6;
-const NEGATIVE_COLOR = new THREE.Color("#5b6b86");
 const DIM = 0.22;
 const INPUT_OFF = 0.015;
 const ACTIVATION_MS = 150;
