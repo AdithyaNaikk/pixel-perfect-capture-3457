@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 import { OUTPUT_RADIUS } from "@/lib/layout";
-import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y } from "./NetworkView";
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y } from "@/lib/layout";
 import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
 import type { Weights } from "@/lib/weights";

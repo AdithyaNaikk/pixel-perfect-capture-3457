@@ -35,11 +35,7 @@ const DIM = 0.22;
 const INPUT_OFF = 0.015;
 const ACTIVATION_MS = 150;
 const CALCULATION_COUNT = "50,816";
-/** Vertical layout above each network (relative to network centre). */
-export const TITLE_Y = 1.3;
-export const ANSWER_Y = 0.88;
-export const ANSWER_SIZE = 0.36;
-export const ANSWER_SUB_Y = 0.63;
+import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, TITLE_Y } from "@/lib/layout";
 const X_COLOR = new THREE.Color("#ff3344");
 const X_ARM = HIDDEN_RADIUS * 2.2;
 
