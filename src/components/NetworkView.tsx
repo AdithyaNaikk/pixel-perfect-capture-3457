@@ -374,11 +374,11 @@ export function NetworkView({
 
       {side === "ai" && aiResult && winnerPosition && (
         <>
-          <mesh position={[winnerPosition.x, winnerPosition.y, 0.018]} renderOrder={2}>
+          <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.02]} renderOrder={2}>
             <torusGeometry args={[OUTPUT_RADIUS * 1.55, 0.006, 8, 48]} />
             <meshBasicMaterial color={color} transparent opacity={0.95} toneMapped={false} />
           </mesh>
-          <mesh position={[winnerPosition.x, winnerPosition.y, 0.014]} renderOrder={2}>
+          <mesh position={[winnerPosition.x, winnerPosition.y, winnerPosition.z + 0.015]} renderOrder={2}>
             <torusGeometry args={[OUTPUT_RADIUS * 2.15, 0.004, 8, 48]} />
             <meshBasicMaterial color={color} transparent opacity={0.35} toneMapped={false} />
           </mesh>
