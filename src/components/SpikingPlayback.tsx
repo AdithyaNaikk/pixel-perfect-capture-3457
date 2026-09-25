@@ -12,7 +12,7 @@ import type { Weights } from "@/lib/weights";
 const STEP_MS = 50;
 const FLASH_MS = 120;
 const TRAVEL_STEPS = 2;
-const MAX_DOTS = 800;
+const MAX_DOTS = 300;
 const FLASH = new THREE.Color("#ffd9a8");
 const BAR_MAX = 0.32;
 const BAR_H = 0.03;
@@ -59,6 +59,8 @@ export function SpikingPlayback(props: Props) {
       c: new THREE.Color(),
       m: new THREE.Matrix4(),
       v: new THREE.Vector3(),
+      q: new THREE.Quaternion(),
+      sv: new THREE.Vector3(),
       hidden: new Float32Array(hiddenPos.length),
       output: new Float32Array(outputPos.length),
       input: new Float32Array(inputPos.length),
@@ -169,6 +171,16 @@ export function SpikingPlayback(props: Props) {
     const leader = res.leader[cur]!;
     let maxC = 1;
     for (const c of res.counts[SNN_T - 1]!) maxC = Math.max(maxC, c);
+    // Output neurons grow with their spike count (1.0 -> 1.6 for the top neuron).
+    if (oMesh) {
+      for (let o = 0; o < outputPos.length; o++) {
+        const sc = 1 + 0.6 * (counts[o]! / maxC);
+        tmp.sv.set(sc, sc, sc);
+        tmp.m.compose(outputPos[o]!, tmp.q, tmp.sv);
+        oMesh.setMatrixAt(o, tmp.m);
+      }
+      oMesh.instanceMatrix.needsUpdate = true;
+    }
     for (let o = 0; o < outputPos.length; o++) {
       const bar = barRefs.current[o];
       if (!bar) continue;

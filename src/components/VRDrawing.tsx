@@ -27,6 +27,8 @@ function VRDrawingInner() {
   const controller = useXRInputSourceState("controller", "right");
   const left = useXRInputSourceState("controller", "left");
   const run = useAppStore((s) => s.run);
+  const lesionMode = useAppStore((s) => s.lesionMode);
+  const lesionedCount = useAppStore((s) => s.lesioned.size);
   const prevX = useRef(false);
   const prev = useRef({ a: false, b: false });
   /** Strokes in panel-local 2D coordinates (metres, y up). */
@@ -167,9 +169,27 @@ function VRDrawingInner() {
       <Text position={[0, h + 0.03, 0]} fontSize={0.03} color={GLOW} anchorX="center" anchorY="middle">
         Draw here
       </Text>
-      <VRButton label="Clear" position={[-0.12, -h - 0.07, 0]} onPress={clear} />
-      <VRButton label="Submit" position={[0.12, -h - 0.07, 0]} onPress={submit} />
-      <Text position={[0, -h - 0.14, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
+      <VRButton label="Clear" position={[-0.3, -h - 0.07, 0]} onPress={clear} />
+      <VRButton label="Submit" position={[-0.1, -h - 0.07, 0]} onPress={submit} />
+      <VRButton
+        label="Lesion mode"
+        position={[0.1, -h - 0.07, 0]}
+        onPress={() => useAppStore.getState().toggleLesionMode()}
+        active={lesionMode}
+      />
+      <VRButton label="Heal all" position={[0.3, -h - 0.07, 0]} onPress={() => useAppStore.getState().healAll()} />
+      <VRButton
+        label="Run again"
+        position={[0.5, -h - 0.07, 0]}
+        onPress={() => {
+          const img = useAppStore.getState().inputImage;
+          if (img) useAppStore.getState().run(img);
+        }}
+      />
+      <Text position={[0.1, -h - 0.135, 0]} fontSize={0.022} color={lesionMode ? "#ff5566" : "#c9a0a6"} anchorX="center" anchorY="middle">
+        {`Lesioned: ${lesionedCount} / 64`}
+      </Text>
+      <Text position={[0, -h - 0.17, 0]} fontSize={0.018} color="#9fb0c4" anchorX="center" anchorY="middle">
         Trigger: draw · A: Submit · B: Clear · X: lesion mode
       </Text>
       <group position={[h + 0.12, 0, 0]}>
@@ -185,7 +205,17 @@ function VRDrawingInner() {
   );
 }
 
-function VRButton({ label, position, onPress }: { label: string; position: [number, number, number]; onPress: () => void }) {
+function VRButton({
+  label,
+  position,
+  onPress,
+  active = false,
+}: {
+  label: string;
+  position: [number, number, number];
+  onPress: () => void;
+  active?: boolean;
+}) {
   const [hover, setHover] = useState(false);
   return (
     <group position={position}>
@@ -198,9 +228,9 @@ function VRButton({ label, position, onPress }: { label: string; position: [numb
         onPointerOut={() => setHover(false)}
       >
         <planeGeometry args={[0.18, 0.07]} />
-        <meshBasicMaterial color={hover ? "#2c3f57" : "#162232"} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={active ? (hover ? "#d6334a" : "#b3202f") : hover ? "#2c3f57" : "#162232"} side={THREE.DoubleSide} />
       </mesh>
-      <Text position={[0, 0, 0.002]} fontSize={0.03} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
+      <Text position={[0, 0, 0.002]} fontSize={0.026} color="#ffffff" anchorX="center" anchorY="middle" raycast={() => null}>
         {label}
       </Text>
     </group>
