@@ -153,18 +153,6 @@ export function NetworkView({
         />
       </instancedMesh>
 
-      {outputPos.map((p, i) => (
-        <Text
-          key={i}
-          position={[p.x + 0.09, p.y, p.z]}
-          fontSize={0.055}
-          color={color}
-          anchorX="left"
-          anchorY="middle"
-        >
-          {String(i)}
-        </Text>
-      ))}
 
       <Text
         position={[hidX, 0.72, 0]}
