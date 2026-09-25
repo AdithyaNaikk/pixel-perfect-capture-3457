@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 import { OUTPUT_RADIUS } from "@/lib/layout";
-import { curveControl, curvePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
+import { curveControl, curvePoint, nervePoint, neuronQuat, seedIn, seedOut } from "@/lib/brainGeometry";
+const RECEPTOR_BRIGHT = new THREE.Color("#ffd6f2");
 import { ANSWER_SIZE, ANSWER_SUB_Y, ANSWER_Y, INACTIVE_COLOR, LABEL_Z, SPIKE_COLOR } from "@/lib/layout";
 import { SNN_T, simulate, type SnnResult } from "@/lib/snn";
 import { useAppStore } from "@/lib/store";
@@ -123,7 +124,7 @@ export function SpikingPlayback(props: Props) {
     const oMesh = outputRef.current;
     if (inMesh) {
       for (let i = 0; i < inputPos.length; i++) {
-        tmp.c.copy(tmp.inBase).lerp(tmp.full, img?.[i] ?? 0).lerp(FLASH, tmp.input[i]!);
+        tmp.c.copy(tmp.inBase).lerp(RECEPTOR_BRIGHT, img?.[i] ?? 0).lerp(FLASH, tmp.input[i]!);
         inMesh.setColorAt(i, tmp.c);
       }
       if (inMesh.instanceColor) inMesh.instanceColor.needsUpdate = true;
@@ -147,9 +148,12 @@ export function SpikingPlayback(props: Props) {
 
     // Travelling dots along drawn connections (stateless, pooled).
     let n = 0;
-    const place = (a: THREE.Vector3, b: THREE.Vector3, k: number, seed: number) => {
-      curveControl(a, b, seed, tmp.ctrl);
-      curvePoint(a, tmp.ctrl, b, k, tmp.v);
+    const place = (a: THREE.Vector3, b: THREE.Vector3, k: number, seed: number, viaNerve = false) => {
+      if (viaNerve) nervePoint(a, b, panelX, k, tmp.v);
+      else {
+        curveControl(a, b, seed, tmp.ctrl);
+        curvePoint(a, tmp.ctrl, b, k, tmp.v);
+      }
       tmp.v.z += 0.01;
       tmp.m.makeTranslation(tmp.v.x, tmp.v.y, tmp.v.z);
       dots.setMatrixAt(n++, tmp.m);
@@ -171,7 +175,7 @@ export function SpikingPlayback(props: Props) {
         for (const h of targets) {
           if (n >= MAX_DOTS) break;
           if (lesioned.has(h)) continue;
-          place(a, hiddenPos[h]!, k, seedIn(i, h));
+          place(a, hiddenPos[h]!, k, seedIn(i, h), true);
         }
       }
     }
