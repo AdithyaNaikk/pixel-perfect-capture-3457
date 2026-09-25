@@ -6,15 +6,16 @@ import * as THREE from "three";
 
 import { preprocessStrokes, type Point } from "@/lib/preprocess";
 import { useAppStore } from "@/lib/store";
-import { rightHand } from "@/lib/rightHand";
+import { rightHand, teleportEvents } from "@/lib/rightHand";
 import { goldenSeven } from "@/lib/selfTest";
 
 const PANEL_POS = new THREE.Vector3(0, 1.2, 1.6);
 const PANEL_SIZE = 0.3;
 const CANVAS = 512;
 const INK_WIDTH = 22;
-const PAD_DISTANCE = 0.45;
-const CHEST_DROP = 0.35;
+const PAD_DISTANCE = 0.7;
+const CHEST_DROP = 0.2;
+const PAD_TILT = -0.3;
 const GLOW = "#ffe2b8";
 
 function pressed(state: { state?: string } | undefined) {
@@ -124,10 +125,10 @@ function VRDrawingInner() {
   const { camera } = useThree();
   const padRef = useRef<THREE.Group>(null);
   const cursorRef = useRef<THREE.Mesh>(null);
-  const lastOrigin = useRef<THREE.Vector3 | null>(null);
-  const tv = useMemo(() => ({ head: new THREE.Vector3(), fwd: new THREE.Vector3(), o: new THREE.Vector3() }), []);
+  const lastTeleport = useRef(teleportEvents.done);
+  const tv = useMemo(() => ({ head: new THREE.Vector3(), fwd: new THREE.Vector3(), m: new THREE.Matrix4(), n: new THREE.Vector3() }), []);
 
-  /** Place the pad 45 cm in front of the head at chest height, facing the user (yaw only). */
+  /** Place the pad 70 cm in front of the head, 20 cm below eye height, facing the user and tilted slightly back. */
   const bringPad = () => {
     const pad = padRef.current;
     if (!pad) return;
@@ -137,20 +138,15 @@ function VRDrawingInner() {
     if (tv.fwd.lengthSq() < 1e-6) tv.fwd.set(0, 0, -1);
     tv.fwd.normalize();
     pad.position.set(tv.head.x + tv.fwd.x * PAD_DISTANCE, tv.head.y - CHEST_DROP, tv.head.z + tv.fwd.z * PAD_DISTANCE);
-    pad.rotation.set(0, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0);
+    pad.rotation.set(PAD_TILT, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0, "YXZ");
     current.current = null;
   };
 
-  useFrame(() => {
-    // Teleport detection: the XR origin (camera parent) jumped -> bring the pad along.
-    const origin = camera.parent;
-    if (origin) {
-      origin.getWorldPosition(tv.o);
-      if (!lastOrigin.current) lastOrigin.current = tv.o.clone();
-      else if (lastOrigin.current.distanceToSquared(tv.o) > 1e-4) {
-        lastOrigin.current.copy(tv.o);
-        bringPad();
-      }
+  useFrame((state, _delta, frame) => {
+    // Reposition only once a teleport has fully finished (after the fade).
+    if (teleportEvents.done !== lastTeleport.current) {
+      lastTeleport.current = teleportEvents.done;
+      bringPad();
     }
     const cursor = cursorRef.current;
     if (cursor) cursor.visible = false;
@@ -160,22 +156,31 @@ function VRDrawingInner() {
     const b = pressed(controller.gamepad["b-button"]);
     if (trigger && rightHand.mode === "idle") rightHand.mode = "draw";
     if (!trigger && rightHand.mode === "draw") rightHand.mode = "idle";
-    const obj = controller.object;
 
     const mesh = padMesh.current;
     let hit: THREE.Intersection | undefined;
-    if (obj && mesh) {
-      // Right controller ray (-Z) against the pad plane; UVs map 1:1 onto the 512x512 canvas.
-      obj.updateWorldMatrix(true, false);
-      raycaster.ray.origin.setFromMatrixPosition(obj.matrixWorld);
-      raycaster.ray.direction.set(0, 0, -1).transformDirection(obj.matrixWorld);
+    // One raycast per frame from the target-ray pose (the same pose the visible ray uses).
+    const refSpace = state.gl.xr.getReferenceSpace();
+    const xrFrame = frame as XRFrame | undefined;
+    const pose = xrFrame && refSpace ? xrFrame.getPose(controller.inputSource.targetRaySpace, refSpace) : undefined;
+    if (pose && mesh) {
+      tv.m.fromArray(pose.transform.matrix);
+      const origin = camera.parent;
+      if (origin) {
+        origin.updateWorldMatrix(true, false);
+        tv.m.premultiply(origin.matrixWorld);
+      }
+      raycaster.ray.origin.setFromMatrixPosition(tv.m);
+      raycaster.ray.direction.set(0, 0, -1).transformDirection(tv.m);
       hits.length = 0;
+      mesh.updateWorldMatrix(true, false);
       mesh.raycast(raycaster, hits);
       hit = hits[0];
       if (hit && cursor) {
+        // Exactly at the hit, lifted 2 mm along the pad normal.
         cursor.position.copy(hit.point);
         mesh.worldToLocal(cursor.position);
-        cursor.position.z = 0.004;
+        cursor.position.z = 0.002;
         cursor.visible = true;
       }
     }
