@@ -39,7 +39,7 @@ function useInstanced(
     const dummy = new THREE.Object3D();
     const base = new THREE.Color(color).multiplyScalar(DIM);
     for (let i = 0; i < positions.length; i++) {
-      dummy.position.copy(positions[i]);
+      dummy.position.copy(positions[i]!);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
       mesh.setColorAt(i, base);
@@ -83,18 +83,18 @@ export function NetworkView({
 
     // Input -> hidden: top 6 incoming weights per hidden neuron.
     for (let h = 0; h < weights.w1.length; h++) {
-      const row = weights.w1[h];
+      const row = weights.w1[h]!;
       const idx = Array.from(row.keys())
-        .sort((a, b) => Math.abs(row[b]) - Math.abs(row[a]))
+        .sort((a, b) => Math.abs(row[b]!) - Math.abs(row[a]!))
         .slice(0, TOP_INCOMING);
-      for (const i of idx) push(inputPos[i], hiddenPos[h], row[i]);
+      for (const i of idx) push(inputPos[i]!, hiddenPos[h]!, row[i]!);
     }
 
     // Hidden -> output: all connections.
     for (let o = 0; o < weights.w2.length; o++) {
-      const row = weights.w2[o];
+      const row = weights.w2[o]!;
       for (let h = 0; h < row.length; h++) {
-        push(hiddenPos[h], outputPos[o], row[h]);
+        push(hiddenPos[h]!, outputPos[o]!, row[h]!);
       }
     }
 
