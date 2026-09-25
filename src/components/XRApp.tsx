@@ -105,6 +105,12 @@ export function XRApp() {
           <span className="font-mono text-xs text-slate-500">VR not available</span>
         ) : null}
       </div>
+      <GuidanceLine />
+      <div className="pointer-events-none fixed inset-x-0 bottom-1 flex justify-center">
+        <span className="font-mono text-[10px] text-slate-500">
+          {vrSupported ? HINT_VR : HINT_DESKTOP}
+        </span>
+      </div>
       <PlaybackControls />
       <DrawingPanel expanded={drawingExpanded} onExpandedChange={setDrawingExpanded} />
     </div>
