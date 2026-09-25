@@ -1,15 +1,12 @@
 import { forward } from "./ann";
 import { goldenDigits } from "./goldenDigits";
-import { simulate } from "./snn";
+import { brainRun } from "./snn";
 import { preprocessStrokes, type Point } from "./preprocess";
 import type { Weights } from "./weights";
 
 let seven: Float32Array | null = null;
 
-/**
- * Golden test digit "7". weights.json carries no sample image, so a clean 7 is built from
- * strokes through the SAME preprocessStrokes used by the desktop pad and VR.
- */
+/** Golden test digit "7", built through the same preprocessStrokes as the pad. */
 export function goldenSeven(): Float32Array {
   if (!seven) {
     const strokes: Point[][] = [
@@ -30,7 +27,7 @@ export function runSelfTest(weights: Weights): string {
 export function runBrainSelfTest(weights: Weights): string {
   let ok = 0;
   goldenDigits().forEach((x, d) => {
-    if (simulate(x, weights, new Set()).prediction === d) ok++;
+    if (brainRun(x, weights, new Set()).winner === d) ok++;
   });
   return `Brain self-test: ${ok}/10`;
 }
