@@ -46,6 +46,7 @@ function VRDrawingInner() {
   const selfTest = useAppStore((s) => s.selfTest);
   const brainSelfTest = useAppStore((s) => s.brainSelfTest);
   const brainCounts = useAppStore((s) => s.brainCounts);
+  const soundOn = useAppStore((s) => s.soundOn);
 
   const ink = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -128,21 +129,38 @@ function VRDrawingInner() {
   const lastTeleport = useRef(teleportEvents.done);
   const tv = useMemo(() => ({ head: new THREE.Vector3(), fwd: new THREE.Vector3(), m: new THREE.Matrix4(), n: new THREE.Vector3() }), []);
 
-  /** Place the pad 70 cm in front of the head, 20 cm below eye height, facing the user and tilted slightly back. */
-  const bringPad = () => {
-    const pad = padRef.current;
-    if (!pad) return;
+  /** Pad placement relative to the head, captured at start (defaults until then). */
+  const rel = useRef({ dist: PAD_DISTANCE, dy: -CHEST_DROP, tilt: PAD_TILT, captured: false, frames: 0 });
+  const headFrame = () => {
     camera.getWorldPosition(tv.head);
     camera.getWorldDirection(tv.fwd);
     tv.fwd.y = 0;
     if (tv.fwd.lengthSq() < 1e-6) tv.fwd.set(0, 0, -1);
     tv.fwd.normalize();
-    pad.position.set(tv.head.x + tv.fwd.x * PAD_DISTANCE, tv.head.y - CHEST_DROP, tv.head.z + tv.fwd.z * PAD_DISTANCE);
-    pad.rotation.set(PAD_TILT, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0, "YXZ");
+  };
+  /** Put the pad centred in front of the head at the saved distance, height and tilt, facing the user. */
+  const bringPad = () => {
+    const pad = padRef.current;
+    if (!pad) return;
+    headFrame();
+    const r = rel.current;
+    pad.position.set(tv.head.x + tv.fwd.x * r.dist, tv.head.y + r.dy, tv.head.z + tv.fwd.z * r.dist);
+    pad.rotation.set(r.tilt, Math.atan2(-tv.fwd.x, -tv.fwd.z), 0, "YXZ");
     current.current = null;
   };
 
   useFrame((state, _delta, frame) => {
+    // Capture the start placement once the headset pose has settled.
+    const r = rel.current;
+    if (!r.captured && padRef.current && ++r.frames > 30) {
+      headFrame();
+      const pad = padRef.current;
+      tv.n.copy(pad.position).sub(tv.head);
+      r.dist = Math.max(0.3, tv.n.x * tv.fwd.x + tv.n.z * tv.fwd.z);
+      r.dy = tv.n.y;
+      r.tilt = pad.rotation.x;
+      r.captured = true;
+    }
     // Reposition only once a teleport has fully finished (after the fade).
     if (teleportEvents.done !== lastTeleport.current) {
       lastTeleport.current = teleportEvents.done;
@@ -268,6 +286,7 @@ function VRDrawingInner() {
       <VRButton label="Run" position={[0.07, -h - 0.04, 0]} onPress={submit} />
       <VRButton label="Test digit" position={[-0.21, -h - 0.04, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
       <VRButton label="Bring pad" position={[0.21, -h - 0.04, 0]} onPress={bringPad} />
+      <VRButton label={soundOn ? "Sound on" : "Sound off"} position={[0.35, -h - 0.04, 0]} onPress={() => useAppStore.getState().toggleSound()} active={!soundOn} />
       <VRButton
         label="Lesion mode"
         position={[-0.21, -h - 0.105, 0]}
