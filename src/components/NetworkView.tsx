@@ -18,7 +18,8 @@ export interface NetworkViewProps {
   side: NetworkSide;
   label: string;
   position: [number, number, number];
-  rotation?: [number, number, number];
+  /** Local X of input, hidden and output layers. */
+  layerX: [number, number, number];
   weights: Weights;
   color: string;
 }
@@ -53,7 +54,7 @@ export function NetworkView({
   side,
   label,
   position,
-  rotation = [0, 0, 0],
+  layerX,
   weights,
   color,
 }: NetworkViewProps) {
@@ -61,9 +62,10 @@ export function NetworkView({
   const hiddenRef = useRef<THREE.InstancedMesh>(null);
   const outputRef = useRef<THREE.InstancedMesh>(null);
 
-  const inputPos = useMemo(() => inputPositions(), []);
-  const hiddenPos = useMemo(() => hiddenPositions(), []);
-  const outputPos = useMemo(() => outputPositions(), []);
+  const [inX, hidX, outX] = layerX;
+  const inputPos = useMemo(() => inputPositions(inX), [inX]);
+  const hiddenPos = useMemo(() => hiddenPositions(hidX), [hidX]);
+  const outputPos = useMemo(() => outputPositions(outX), [outX]);
 
   useInstanced(inputPos, color, inputRef);
   useInstanced(hiddenPos, color, hiddenRef);
@@ -107,7 +109,7 @@ export function NetworkView({
   useEffect(() => () => lineGeometry.dispose(), [lineGeometry]);
 
   return (
-    <group position={position} rotation={rotation} name={`network-${side}`}>
+    <group position={position} name={`network-${side}`}>
       <lineSegments geometry={lineGeometry} frustumCulled={false}>
         <lineBasicMaterial vertexColors transparent opacity={0.08} depthWrite={false} />
       </lineSegments>
@@ -165,7 +167,7 @@ export function NetworkView({
       ))}
 
       <Text
-        position={[0, 0.72, 0]}
+        position={[hidX, 0.72, 0]}
         fontSize={0.14}
         color={color}
         anchorX="center"
