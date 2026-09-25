@@ -23,6 +23,8 @@ export interface Weights {
   w2: number[][];
   meta: WeightsMeta;
   snn: SnnSettings;
+  /** Complete "snn" block from weights.json, if present. */
+  snnBlock?: { W1_scale: number; W2_scale: number; threshold: number; beta: number; timesteps: number; input_rate: number } | undefined;
   /** True when these are random placeholder weights. */
   isPlaceholder?: boolean;
 }
@@ -40,6 +42,7 @@ interface WeightsFile {
   threshold?: number;
   timesteps?: number;
   input_rate?: number;
+  snn?: Record<string, unknown>;
 }
 
 export const INPUT_SIZE = 784;
@@ -98,8 +101,17 @@ function fromFile(file: WeightsFile, isPlaceholder: boolean): Weights {
       threshold: num(pick(file.threshold, s.threshold), DEFAULT_SNN.threshold),
       ...(w1Scale !== undefined && w2Scale !== undefined ? { w1Scale, w2Scale } : {}),
     },
+    snnBlock: readSnnBlock(file.snn),
     isPlaceholder,
   };
+}
+
+function readSnnBlock(b: Record<string, unknown> | undefined): Weights["snnBlock"] {
+  if (!b) return undefined;
+  const keys = ["W1_scale", "W2_scale", "threshold", "beta", "timesteps", "input_rate"] as const;
+  if (!keys.every((k) => typeof b[k] === "number" && Number.isFinite(b[k]))) return undefined;
+  const n = (k: (typeof keys)[number]) => b[k] as number;
+  return { W1_scale: n("W1_scale"), W2_scale: n("W2_scale"), threshold: n("threshold"), beta: n("beta"), timesteps: n("timesteps"), input_rate: n("input_rate") };
 }
 
 /** Random placeholder weights, generated in the file format then converted. */

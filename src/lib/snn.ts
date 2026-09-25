@@ -1,53 +1,32 @@
 import { forward } from "./ann";
-import { HIDDEN_SIZE, INPUT_SIZE, OUTPUT_SIZE, type Weights } from "./weights";
+import type { Weights } from "./weights";
 
-export const SNN_T = 80;
+import { snnRun, type SnnParams, type SnnResult } from "./snnRun";
 
-export interface SnnResult {
-  /** Per timestep: indices of neurons that spiked. */
-  inputSpikes: number[][];
-  hiddenSpikes: number[][];
-  outputSpikes: number[][];
-  /** Per timestep: cumulative output spike counts after that step. */
-  counts: Int32Array[];
-  /** Per timestep: leader after that step. */
-  leader: number[];
-  /** Post-spike-reset membrane potential for every output neuron at each timestep. */
-  outputPotentials: Float32Array[];
-  prediction: number;
-  /** 1-based step after which the winner stays in the lead. */
-  decisionStep: number;
-  synapticEvents: number;
-  /** Final winner spikes divided by all output spikes. */
-  confidence: number;
-  /** True when no output neuron fired during the run. */
-  noAnswer: boolean;
-}
+export { snnRun, type SnnParams, type SnnResult };
 
-function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
-function argmaxCounts(counts: Int32Array, v: Float32Array): number {
-  let best = 0;
-  for (let o = 1; o < counts.length; o++) {
-    const c = counts[o]!;
-    const b = counts[best]!;
-    if (c > b || (c === b && v[o]! > v[best]!)) best = o;
+// ---- App glue (not part of the provided snnRun) ----
+
+const flatCache = new WeakMap<Weights, { W1: Float32Array; W2: Float32Array }>();
+
+/** Same flat layout as the AI forward pass: W1[pixel * 64 + hidden], W2[hidden * 10 + digit]. */
+export function flatWeights(weights: Weights) {
+  let f = flatCache.get(weights);
+  if (!f) {
+    const W1 = new Float32Array(784 * 64);
+    const W2 = new Float32Array(64 * 10);
+    for (let h = 0; h < 64; h++) for (let i = 0; i < 784; i++) W1[i * 64 + h] = weights.w1[h]![i]!;
+    for (let d = 0; d < 10; d++) for (let h = 0; h < 64; h++) W2[h * 10 + d] = weights.w2[d]![h]!;
+    f = { W1, W2 };
+    flatCache.set(weights, f);
   }
-  return best;
+  return f;
 }
 
-export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number>): SnnResult {
-  const { input_rate: RATE = 0.3, leak: LEAK = 0.95, threshold: THRESHOLD = 1 } = weights.snn ?? {};
-  // Per-layer normalisation: max ANN activation of each layer on THIS input -> 1.
+/** Parameters from the "snn" block of weights.json, or computed per input when it is missing. */
+export function snnParams(x: Float32Array, weights: Weights, lesioned: Set<number>): SnnParams {
+  if (weights.snnBlock) return weights.snnBlock;
   const ann = forward(x, weights, lesioned);
   let maxH = 0;
   for (const v of ann.hidden) maxH = Math.max(maxH, v);
@@ -55,78 +34,12 @@ export function simulate(x: Float32Array, weights: Weights, lesioned: Set<number
   for (const v of ann.output) maxO = Math.max(maxO, v);
   if (!(maxH > 0)) maxH = 1;
   if (!(maxO > 0)) maxO = 1;
-  // Fixed scales from weights.json when provided; otherwise per-layer data normalisation.
-  const fixed = weights.snn?.w1Scale !== undefined && weights.snn?.w2Scale !== undefined;
-  const s1 = fixed ? weights.snn.w1Scale! : 1 / maxH;
-  const s2 = fixed ? weights.snn.w2Scale! : maxH / maxO;
+  return { W1_scale: 1 / maxH, W2_scale: maxH / maxO, threshold: 1, beta: 0.99, timesteps: 100, input_rate: 1 };
+}
 
-  const rand = mulberry32(42);
-  const vH = new Float32Array(HIDDEN_SIZE);
-  const vO = new Float32Array(OUTPUT_SIZE);
-  const count = new Int32Array(OUTPUT_SIZE);
-  const res: SnnResult = {
-    inputSpikes: [],
-    hiddenSpikes: [],
-    outputSpikes: [],
-    counts: [],
-    leader: [],
-    outputPotentials: [],
-    prediction: 0,
-    decisionStep: 1,
-    synapticEvents: 0,
-    confidence: 0,
-    noAnswer: true,
-  };
-
-  for (let t = 0; t < SNN_T; t++) {
-    const inS: number[] = [];
-    for (let i = 0; i < INPUT_SIZE; i++) if (rand() < x[i]! * RATE) inS.push(i);
-
-    const hS: number[] = [];
-    for (let h = 0; h < HIDDEN_SIZE; h++) {
-      const row = weights.w1[h]!;
-      let sum = 0;
-      for (const i of inS) sum += row[i]!;
-      vH[h] = vH[h]! * LEAK + sum * s1;
-      if (lesioned.has(h)) continue;
-      if (vH[h]! >= THRESHOLD) {
-        hS.push(h);
-        vH[h] = vH[h]! - THRESHOLD;
-      }
-    }
-
-    const oS: number[] = [];
-    for (let o = 0; o < OUTPUT_SIZE; o++) {
-      const row = weights.w2[o]!;
-      let sum = 0;
-      for (const h of hS) sum += row[h]!;
-      vO[o] = vO[o]! * LEAK + sum * s2;
-      if (vO[o]! >= THRESHOLD) {
-        oS.push(o);
-        vO[o] = vO[o]! - THRESHOLD;
-        count[o] = count[o]! + 1;
-      }
-    }
-
-    res.inputSpikes.push(inS);
-    res.hiddenSpikes.push(hS);
-    res.outputSpikes.push(oS);
-    res.counts.push(count.slice());
-    res.leader.push(argmaxCounts(count, vO));
-    res.outputPotentials.push(vO.slice());
-    res.synapticEvents += inS.length * HIDDEN_SIZE + hS.length * OUTPUT_SIZE;
-  }
-
-  res.prediction = res.leader[SNN_T - 1]!;
-  let d = SNN_T - 1;
-  while (d > 0 && res.leader[d - 1] === res.prediction) d--;
-  res.decisionStep = d + 1;
-  let totalSpikes = 0;
-  const finalCounts = res.counts[SNN_T - 1];
-  if (finalCounts) {
-    for (const value of finalCounts) totalSpikes += value;
-    res.noAnswer = totalSpikes === 0;
-    res.confidence = totalSpikes > 0 ? (finalCounts[res.prediction] ?? 0) / totalSpikes : 0;
-  }
-  return res;
+export function brainRun(x: Float32Array, weights: Weights, lesioned: Set<number>): SnnResult & { params: SnnParams } {
+  const { W1, W2 } = flatWeights(weights);
+  const params = snnParams(x, weights, lesioned);
+  const lesion = Array.from({ length: 64 }, (_, h) => lesioned.has(h));
+  return { ...snnRun(x, W1, W2, params, lesion), params };
 }

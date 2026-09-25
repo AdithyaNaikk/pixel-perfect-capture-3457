@@ -11,11 +11,10 @@ import { goldenSeven } from "@/lib/selfTest";
 
 const PANEL_POS = new THREE.Vector3(0, 1.2, 1.6);
 const PANEL_SIZE = 0.3;
-/** Max distance of the pen tip from the pad surface that still counts as drawing. */
-const DRAW_DEPTH = 0.06;
+const CANVAS = 512;
+const INK_WIDTH = 22;
 const PAD_DISTANCE = 0.45;
 const CHEST_DROP = 0.35;
-const MAX_SEGMENTS = 20000;
 const GLOW = "#ffe2b8";
 
 function pressed(state: { state?: string } | undefined) {
@@ -35,25 +34,37 @@ function VRDrawingInner() {
   const lesionMode = useAppStore((s) => s.lesionMode);
   const lesionedCount = useAppStore((s) => s.lesioned.size);
   const prev = useRef({ a: false, b: false });
-  /** Strokes in panel-local 2D coordinates (metres, y up). */
+  /** Strokes in pad-canvas pixels (0..512, y down), like the desktop pad. */
   const strokes = useRef<Point[][]>([]);
   const current = useRef<Point[] | null>(null);
-  const segCount = useRef(0);
-  const tipLocal = useMemo(() => new THREE.Vector3(0, 0, -0.13), []);
-  const tip = useMemo(() => new THREE.Vector3(), []);
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const hits = useMemo<THREE.Intersection[]>(() => [], []);
+  const padMesh = useRef<THREE.Mesh>(null);
   const [warning, setWarning] = useState("");
   const weightsStatus = useAppStore((s) => s.weightsStatus);
   const selfTest = useAppStore((s) => s.selfTest);
   const brainSelfTest = useAppStore((s) => s.brainSelfTest);
   const brainCounts = useAppStore((s) => s.brainCounts);
 
-  const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_SEGMENTS * 6), 3));
-    g.setDrawRange(0, 0);
-    return g;
+  const ink = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = CANVAS;
+    const ctx = canvas.getContext("2d")!;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return { canvas, ctx, tex };
   }, []);
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  const wipe = () => {
+    const { ctx, tex } = ink;
+    ctx.fillStyle = "#0b0f16";
+    ctx.fillRect(0, 0, CANVAS, CANVAS);
+    tex.needsUpdate = true;
+  };
+  useEffect(() => {
+    wipe();
+    return () => ink.tex.dispose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ink]);
 
   const texture = useMemo(() => {
     const t = new THREE.DataTexture(new Uint8Array(28 * 28 * 4), 28, 28, THREE.RGBAFormat);
@@ -89,16 +100,15 @@ function VRDrawingInner() {
   const clear = () => {
     strokes.current = [];
     current.current = null;
-    segCount.current = 0;
-    geometry.setDrawRange(0, 0);
+    wipe();
     setWarning("");
   };
 
   const submit = () => {
     const pts: Point[][] = strokes.current
       .filter((s) => s.length > 0)
-      // mm units; flip Y so the result is screen-like (y down) for preprocessStrokes.
-      .map((s) => s.map((p) => ({ x: p.x * 1000, y: -p.y * 1000 })));
+      // Canvas pixels, y down; scaled to the desktop pad's 280 px so the size checks match.
+      .map((s) => s.map((p) => ({ x: (p.x * 280) / CANVAS, y: (p.y * 280) / CANVAS })));
     const all = pts.flat();
     if (all.length === 0) return setWarning("Nothing drawn yet");
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -152,47 +162,55 @@ function VRDrawingInner() {
     if (!trigger && rightHand.mode === "draw") rightHand.mode = "idle";
     const obj = controller.object;
 
-    const pad = padRef.current;
-    let inside = false;
-    let px = 0;
-    let py = 0;
-    if (obj && pad) {
-      // Pen tip in pad-local coordinates (x right, y up, z out of the pad), 1:1 metres.
+    const mesh = padMesh.current;
+    let hit: THREE.Intersection | undefined;
+    if (obj && mesh) {
+      // Right controller ray (-Z) against the pad plane; UVs map 1:1 onto the 512x512 canvas.
       obj.updateWorldMatrix(true, false);
-      pad.updateWorldMatrix(true, false);
-      tip.copy(tipLocal).applyMatrix4(obj.matrixWorld);
-      pad.worldToLocal(tip);
-      px = tip.x;
-      py = tip.y;
-      const h = PANEL_SIZE / 2;
-      inside = Math.abs(px) <= h && Math.abs(py) <= h && Math.abs(tip.z) <= DRAW_DEPTH;
-      if (inside && cursor) {
-        cursor.position.set(px, py, 0.004);
+      raycaster.ray.origin.setFromMatrixPosition(obj.matrixWorld);
+      raycaster.ray.direction.set(0, 0, -1).transformDirection(obj.matrixWorld);
+      hits.length = 0;
+      mesh.raycast(raycaster, hits);
+      hit = hits[0];
+      if (hit && cursor) {
+        cursor.position.copy(hit.point);
+        mesh.worldToLocal(cursor.position);
+        cursor.position.z = 0.004;
         cursor.visible = true;
       }
     }
 
-    if (trigger && rightHand.mode === "draw" && inside) {
+    if (trigger && rightHand.mode === "draw" && hit?.uv) {
+      const x = hit.uv.x * CANVAS;
+      const y = (1 - hit.uv.y) * CANVAS;
       if (!current.current) {
         current.current = [];
         strokes.current.push(current.current);
       }
       const stroke = current.current;
       const last = stroke[stroke.length - 1];
-      if (!last || Math.abs(last.x - px) + Math.abs(last.y - py) > 0.001) {
-        if (last && segCount.current < MAX_SEGMENTS) {
-          const arr = geometry.attributes["position"]!.array as Float32Array;
-          const o = segCount.current * 6;
-          arr[o] = last.x; arr[o + 1] = last.y; arr[o + 2] = 0.003;
-          arr[o + 3] = px; arr[o + 4] = py; arr[o + 5] = 0.003;
-          segCount.current++;
-          geometry.attributes["position"]!.needsUpdate = true;
-          geometry.setDrawRange(0, segCount.current * 2);
-        }
-        stroke.push({ x: px, y: py });
+      const { ctx, tex } = ink;
+      ctx.strokeStyle = GLOW;
+      ctx.fillStyle = GLOW;
+      ctx.lineWidth = INK_WIDTH;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (!last) {
+        ctx.beginPath();
+        ctx.arc(x, y, INK_WIDTH / 2, 0, Math.PI * 2);
+        ctx.fill();
+        stroke.push({ x, y });
+        tex.needsUpdate = true;
+      } else if (Math.abs(last.x - x) + Math.abs(last.y - y) > 1) {
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        stroke.push({ x, y });
+        tex.needsUpdate = true;
       }
     } else {
-      // Leaving the pad (or releasing the trigger) ends the stroke: ink is clipped at the edges.
+      // Off the pad or trigger released: the stroke ends (ink is clipped at the edges).
       current.current = null;
     }
 
@@ -214,20 +232,18 @@ function VRDrawingInner() {
   return (
     <group ref={padRef} position={PANEL_POS}>
       <mesh
+        ref={padMesh}
         renderOrder={0}
         onPointerDown={(e) => e.stopPropagation()}
         onPointerUp={(e) => e.stopPropagation()}
       >
         <planeGeometry args={[PANEL_SIZE, PANEL_SIZE]} />
-        <meshBasicMaterial color="#0b0f16" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial map={ink.tex} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
       <line>
         <primitive object={border} attach="geometry" />
         <lineBasicMaterial color="#ffffff" toneMapped={false} />
       </line>
-      <lineSegments geometry={geometry} frustumCulled={false} raycast={() => null}>
-        <lineBasicMaterial color={GLOW} toneMapped={false} />
-      </lineSegments>
       <Text position={[0, h + 0.02, 0]} fontSize={0.02} color={GLOW} anchorX="center" anchorY="middle">
         Draw here
       </Text>
@@ -243,10 +259,10 @@ function VRDrawingInner() {
         <circleGeometry args={[0.004, 12]} />
         <meshBasicMaterial color="#ffffff" toneMapped={false} depthTest={false} />
       </mesh>
-      <VRButton label="Test digit" position={[-0.21, -h - 0.045, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
-      <VRButton label="Clear" position={[-0.07, -h - 0.045, 0]} onPress={clear} />
-      <VRButton label="Submit" position={[0.07, -h - 0.045, 0]} onPress={submit} />
-      <VRButton label="Bring pad" position={[0.21, -h - 0.045, 0]} onPress={bringPad} />
+      <VRButton label="Clear" position={[-0.07, -h - 0.04, 0]} onPress={clear} />
+      <VRButton label="Run" position={[0.07, -h - 0.04, 0]} onPress={submit} />
+      <VRButton label="Test digit" position={[-0.21, -h - 0.04, 0]} onPress={() => { clear(); run(goldenSeven()); }} />
+      <VRButton label="Bring pad" position={[0.21, -h - 0.04, 0]} onPress={bringPad} />
       <VRButton
         label="Lesion mode"
         position={[-0.21, -h - 0.105, 0]}
