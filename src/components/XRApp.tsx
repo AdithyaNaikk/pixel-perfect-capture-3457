@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { FOCUS, Scene } from "./Scene";
 import { DrawingPanel } from "./DrawingPanel";
+import { GuidanceLine, HINT_DESKTOP, HINT_VR } from "./Guidance";
 import { VRDrawing } from "./VRDrawing";
 import { useAppStore, type PlaybackSpeed } from "@/lib/store";
 import { loadWeights, type Weights } from "@/lib/weights";

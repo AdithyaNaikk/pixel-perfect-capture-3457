@@ -40,6 +40,8 @@ export function Scene({ weights }: { weights: Weights }) {
         color={BRAIN_COLOR}
       />
 
+      <Guidance3D />
+
       {Array.from({ length: OUTPUT_COUNT }, (_, i) => (
         <Text
           key={i}
