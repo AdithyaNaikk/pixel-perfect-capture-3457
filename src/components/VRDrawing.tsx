@@ -1,5 +1,5 @@
 import { Text } from "@react-three/drei";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import { useXR, useXRInputSourceState } from "@react-three/xr";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -37,9 +37,6 @@ function VRDrawingInner() {
   /** Strokes in panel-local 2D coordinates (metres, y up). */
   const strokes = useRef<Point[][]>([]);
   const current = useRef<Point[] | null>(null);
-  /** Latest ray hit on the panel in local coordinates, or null when the ray is off the panel. */
-  const hit = useRef<THREE.Vector3 | null>(null);
-  const hitVec = useMemo(() => new THREE.Vector3(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const rayOrigin = useMemo(() => new THREE.Vector3(), []);
   const rayDirection = useMemo(() => new THREE.Vector3(), []);
